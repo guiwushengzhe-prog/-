@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "query": "致爱丽丝",
+  "title": "Für Elise",
+  "source": {
+    "kind": "midi-search",
+    "query": "致爱丽丝",
+    "provider": "Mutopia Project",
+    "license": "Public Domain",
+    "page_url": "https://www.mutopiaproject.org/cgibin/piece-info.cgi?id=931",
+    "midi_url": "https://www.mutopiaproject.org/ftp/BeethovenLv/WoO59/fur_Elise_WoO59/fur_Elise_WoO59.mid",
+    "composer": "L. V. Beethoven (1770–1827)"
+  },
+  "source_notes": 905,
+  "practice_notes": 905,
+  "fingering": "pianoplayer+constrained-hand-routing",
+  "seconds": 5.768,
+  "fingering_review": {
+    "proposal_policy": "preserve_valid_upstream_repair_conflicts_only",
+    "constraint_validation": "passed",
+    "source_hand_note_count": 0,
+    "omitted_note_count": 0,
+    "shortened_note_count": 34,
+    "chord_constraint_repairs": 3
+  }
+}

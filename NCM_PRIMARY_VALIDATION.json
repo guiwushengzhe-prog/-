@@ -1,0 +1,20 @@
+{
+  "passed": true,
+  "input": "known real K525 recording wrapped in an independently constructed test NCM container; not a NetEase-downloaded file",
+  "engine": "transkun-v2-no-pedal-extension-cpu",
+  "raw_notes": 861,
+  "practice_notes": 853,
+  "restored_mp3_byte_identical": true,
+  "raw_predictions_identical_to_direct_mp3": true,
+  "finger_colours_consistent": true,
+  "original_container_preserved": true,
+  "seconds": 101.067,
+  "post_review_fingering_recheck": {
+    "passed": true,
+    "practice_notes": 853,
+    "source_note_count": 861,
+    "proposal_policy": "preserve_valid_upstream_repair_conflicts_only",
+    "constraint_validation": "passed",
+    "shortened_note_count": 23
+  }
+}

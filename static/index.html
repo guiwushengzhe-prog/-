@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10151e">
+  <title>琴光 · 钢琴灯光工作台</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <svg class="icon-defs" aria-hidden="true"><defs>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="m5 5 10 7-10 7zM19 5v14"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="m19 5-10 7 10 7zM5 5v14"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13M9 9l12-2"/><ellipse cx="5.5" cy="18" rx="3.5" ry="3"/><ellipse cx="17.5" cy="16" rx="3.5" ry="3"/></symbol>
+    <symbol id="i-loop" viewBox="0 0 24 24"><path d="M4 8h14l-3-3m3 3-3 3M20 16H6l3 3m-3-3 3-3"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="m8 3 3 3m5-1 3 3M7 7l10 10m-8 0-5 5m1-11 7-7 8 8-7 7h-4l-4-4z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M8 4v6m8 4v6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L20 5"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6 6a8 8 0 0 1 13 3M18 18A8 8 0 0 1 5 15"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-5-5 5 5-5 5"/></symbol>
+  </defs></svg>
+
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="琴光首页">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span>琴光<span class="brand-subtitle">PIANO LIGHT STUDIO</span></span>
+    </a>
+    <div class="header-right"><span class="local-label"><span class="status-dot"></span>本地音乐工作台</span><span class="version">PREVIEW 01</span></div>
+  </header>
+
+  <main class="app-layout">
+    <aside class="sidebar" aria-label="曲目导入与设备">
+      <section class="sidebar-section">
+        <div class="eyebrow">01 / YOUR MUSIC</div>
+        <h1>让琴键，<br>为你指路。</h1>
+        <p class="intro">把音乐变成简谱与十指灯光。<br>跟着亮起的琴键，一句一句练。</p>
+        <form id="midi-search-form" class="midi-search-form">
+          <label for="song-query">输入想练的曲名</label>
+          <input id="song-query" type="search" maxlength="120" placeholder="例如：致爱丽丝 / Fur Elise" required>
+          <button id="find-midi" class="button primary full" type="submit">自动找 MIDI 并生成指法</button>
+          <small>在公开可下载曲库中匹配版本，下载后自动生成双手指法和灯色。</small>
+        </form>
+        <label class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="选择或拖入音频及 MIDI 文件">
+          <input type="file" id="file-input" accept=".mp3,.wav,.flac,.ogg,.mid,.midi,.ncm" hidden>
+          <span class="upload-icon"><svg class="icon"><use href="#i-upload"/></svg></span>
+          <strong>拖入一首音乐</strong>
+          <span>或点击选择文件</span>
+          <small>MP3 · WAV · FLAC · OGG · MIDI · NCM<br>单文件 ≤ 64 MB，NCM 自动转换为 MP3</small>
+        </label>
+        <div class="import-config">
+          <label>曲谱速度 <span class="muted">BPM</span><input id="import-bpm" type="number" min="20" max="300" placeholder="自动估计" inputmode="numeric"></label>
+          <label>简谱调号<select id="import-tonic" aria-label="导入简谱调号"><option value="-1">自动识别</option><option value="0">1 = C</option><option value="1">1 = C♯</option><option value="2">1 = D</option><option value="3">1 = E♭</option><option value="4">1 = E</option><option value="5">1 = F</option><option value="6">1 = F♯</option><option value="7">1 = G</option><option value="8">1 = A♭</option><option value="9">1 = A</option><option value="10">1 = B♭</option><option value="11">1 = B</option></select></label>
+        </div>
+        <div id="job-panel" class="job-panel" role="status" aria-live="polite" hidden><div class="job-heading"><span class="spinner"></span><strong id="job-title">正在处理音乐</strong></div><div class="job-track"><span></span></div><p id="job-message">正在读取文件…</p></div>
+        <p id="engine-status" class="engine-status"><span class="status-dot neutral"></span>正在检查音频转谱服务…</p>
+        <button class="button secondary full" id="demo-button"><svg class="icon"><use href="#i-music"/></svg>先试试示例曲<svg class="icon end-icon"><use href="#i-arrow"/></svg></button>
+      </section>
+
+      <section class="sidebar-section workflow-section">
+        <div class="section-label">从音乐到指尖</div>
+        <ol class="workflow"><li><span>1</span><div><strong>导入音乐</strong><small>NCM 自动转换，MIDI 直接读取</small></div></li><li><span>2</span><div><strong>自动生成练习</strong><small>简谱、双手指法与灯光同步</small></div></li><li><span>3</span><div><strong>跟灯练琴</strong><small>放慢速度，或手动逐组推进</small></div></li></ol>
+      </section>
+
+      <section class="sidebar-section device-summary">
+        <div class="device-icon"><svg class="icon"><use href="#i-plug"/></svg></div><div><strong id="device-title">灯带预览模式</strong><small id="device-subtitle">连接 ESP32 后同步到实物</small></div><span id="device-dot" class="status-dot neutral"></span>
+      </section>
+      <p class="sidebar-footnote">适用于普通钢琴。音乐按时间推进，<br>也可用键盘 → 键切换到下一组。</p>
+    </aside>
+
+    <section class="workspace" aria-label="钢琴练习工作台">
+      <div class="workspace-heading"><div><div class="eyebrow">02 / PRACTICE SPACE</div><h2>跟着光，找到下一音。</h2></div><div class="head-actions"><button class="button subtle" id="settings-shortcut"><svg class="icon"><use href="#i-settings"/></svg>灯带与设置</button><details class="export-menu" id="export-menu"><summary class="button secondary"><svg class="icon"><use href="#i-download"/></svg>导出<svg class="icon small"><use href="#i-chevron"/></svg></summary><div class="menu-panel"><button id="export-project">练习项目 <small>JSON · 含指法与校准</small></button><button id="export-events">灯光时间轴 <small>JSON · 当前速度与手别</small></button><button id="export-midi">MIDI 乐曲 <small>标准 MIDI 文件</small></button></div></details></div></div>
+
+      <section class="practice-card panel">
+        <div class="song-heading"><div class="song-icon"><svg class="icon"><use href="#i-music"/></svg></div><div class="song-title-block"><h3 id="song-title">练习示例 · C 大调</h3><div class="song-meta"><span id="song-key">1 = C</span><span id="song-bpm">90 BPM</span><span id="song-count">等待载入</span><span class="source-tag" id="song-source">示例</span></div><a id="converted-audio-download" class="converted-audio-download" download hidden><svg class="icon"><use href="#i-download"/></svg>下载转换后的 MP3</a></div><span class="ready-badge" id="project-badge"><svg class="icon"><use href="#i-check"/></svg>自动生成指法</span></div>
+        <div class="practice-toolbar"><div class="segmented" id="mode-control" aria-label="练习模式"><button class="selected" data-mode="timed" aria-pressed="true">定速跟练</button><button data-mode="manual" aria-pressed="false">手动推进</button></div><div class="hand-filter" id="hand-filter" aria-label="练习手别"><span>练习</span><button class="selected" data-hand="both" aria-pressed="true">双手</button><button data-hand="L" aria-pressed="false">左手</button><button data-hand="R" aria-pressed="false">右手</button></div></div>
+
+        <div class="score-wrapper">
+          <div class="score-labels" aria-hidden="true"><div class="score-top-label">音组</div><div class="staff-label right-label">右手<span>R</span></div><div class="staff-label left-label">左手<span>L</span></div></div>
+          <div class="score-scroll" id="score-scroll" aria-label="简谱音组，点击可跳转"><div class="score-grid" id="score-grid"></div></div>
+        </div>
+        <div class="score-caption"><span><span class="caption-dot"></span>同列同时弹；彩色标签为指法，灯光含提前预亮</span><div class="score-pages"><button id="score-page-prev" class="icon-button tiny" title="上一页音组" aria-label="上一页音组">‹</button><span id="score-range">—</span><button id="score-page-next" class="icon-button tiny" title="下一页音组" aria-label="下一页音组">›</button></div></div>
+
+        <div class="transport"><div class="transport-top"><div class="playback-buttons"><button class="icon-button" id="prev-button" title="上一组（←）" aria-label="上一组"><svg class="icon"><use href="#i-prev"/></svg></button><button class="play-button" id="play-button" title="播放或暂停（空格）" aria-label="开始练习"><svg class="icon" id="play-icon"><use href="#i-play"/></svg><span id="play-label">开始练习</span></button><button class="icon-button" id="next-button" title="下一组（→）" aria-label="下一组"><svg class="icon"><use href="#i-next"/></svg></button></div><div class="speed-control"><label for="speed-range">速度 <strong id="speed-label">1.00×</strong></label><input type="range" id="speed-range" min="40" max="150" step="5" value="100" aria-label="练习速度"><button class="text-button" id="speed-reset" title="恢复原速">原速</button></div><button class="button loop-button" id="loop-button" aria-pressed="false"><svg class="icon"><use href="#i-loop"/></svg>循环</button></div><div class="timeline-row"><span id="time-current">00:00</span><input type="range" id="timeline" min="0" max="100" step="0.01" value="0" aria-label="播放位置"><span id="time-total">00:00</span></div><div id="loop-settings" class="loop-settings" hidden><span>循环片段</span><label>起点 <input id="loop-start" type="number" min="0" step="0.1" value="0"> 秒</label><button class="text-button" id="loop-set-start">设为当前位置</button><span class="loop-separator">→</span><label>终点 <input id="loop-end" type="number" min="0" step="0.1" value="0"> 秒</label><button class="text-button" id="loop-set-end">设为当前位置</button></div><p class="mode-hint" id="mode-hint">按空格播放／暂停，← → 跳转音组。普通钢琴按设定速度跟练。</p></div>
+      </section>
+
+      <section class="keyboard-card panel">
+        <div class="panel-heading"><div><div class="eyebrow">03 / FOLLOW THE LIGHT</div><h3>琴键与灯光</h3></div><span class="mapping-badge" id="mapping-badge">示例映射 · 安装后请校准</span></div>
+        <div class="live-readout"><span class="live-label"><span class="status-dot" id="playing-dot"></span><span id="live-status">准备就绪</span></span><div class="live-notes" id="live-notes"><span class="muted">点击开始，查看音符与指法</span></div><span class="current-group" id="current-group">第 1 组</span></div>
+        <div class="keyboard-scroll" id="keyboard-scroll"><div class="keyboard" id="keyboard" role="img" aria-label="虚拟钢琴，亮起颜色对应手指"></div></div>
+        <div class="led-preview"><div class="led-caption"><span>LED 灯带</span><small id="led-count-label">144 颗 · 亮度 15%</small></div><div class="led-track" id="led-track" aria-label="LED 灯带实时预览"></div></div>
+        <div class="finger-legend" id="finger-legend" aria-label="十指颜色图例"></div>
+      </section>
+
+      <details class="settings panel" id="settings-panel"><summary><span><svg class="icon"><use href="#i-settings"/></svg>灯带连接与练习设置</span><svg class="icon chevron"><use href="#i-chevron"/></svg></summary><div class="settings-body">
+        <section class="settings-section"><h4>连接实物灯带</h4><p class="setting-help">通过 USB 连接烧录配套固件的 ESP32。暂停、跳转或断开时自动熄灯。</p><div class="connection-row"><label class="grow">串口<select id="serial-port"><option value="">选择 ESP32 串口</option></select></label><button class="icon-button field-aligned" id="refresh-ports" title="刷新串口" aria-label="刷新串口"><svg class="icon"><use href="#i-refresh"/></svg></button><button class="button primary field-aligned" id="connect-button"><svg class="icon"><use href="#i-plug"/></svg>连接灯带</button></div><p class="setting-help" id="serial-message">尚未连接，仅显示软件预览。</p><label class="brightness-control">灯光亮度 <input id="brightness-range" type="range" min="1" max="35" value="15"><strong id="brightness-value">15%</strong></label></section>
+
+        <section class="settings-section"><div class="setting-title"><h4>琴键与灯珠校准</h4><span id="calibration-summary" class="small-pill">示例映射</span></div><p class="setting-help">灯条安装位置各不相同。先生成初始映射，再按实际位置逐键调整；空白表示此键不点灯。灯珠编号从 0 开始。</p><div class="calibration-grid"><label>起始琴键<select id="first-pitch"></select></label><label>琴键数量<input id="key-count" type="number" min="1" max="88" value="88"></label><label>灯珠数量<input id="led-count" type="number" min="1" max="512" value="144"></label><button class="button secondary field-aligned" id="generate-map">生成初始映射</button></div><div class="key-map-row"><label>校准琴键<select id="calibration-pitch"></select></label><label class="grow">对应灯珠编号 <span class="muted">多个用逗号分隔</span><input id="calibration-leds" type="text" placeholder="例如 65,66" inputmode="numeric"></label><button class="button secondary field-aligned" id="test-key">测试此键</button><button class="button primary field-aligned" id="save-key">保存此键</button></div><div class="calibration-actions"><label class="checkbox-label"><input type="checkbox" id="mapping-confirmed">已按实际安装核对映射</label><button class="text-button" id="save-calibration">保存校准设置</button></div><p id="mapping-message" class="setting-help">初始映射仅作示例，尚未确认实物安装位置。</p></section>
+
+        <section class="settings-section"><h4>简谱与自动指法</h4><p class="setting-help">调整调号与手掌跨度后，自动重新生成整首指法。BPM 用于简谱时值显示；跟练快慢由播放器速度控制。时值按 4/4 参考分组。</p><div class="rebuild-grid"><label>简谱调号<select id="rebuild-tonic"></select></label><label>曲谱速度 BPM<input id="rebuild-bpm" type="number" min="20" max="300" value="90"></label><label>手掌跨度<select id="hand-size"><option value="S">偏小 · S</option><option value="M" selected>适中 · M</option><option value="L">偏大 · L</option></select></label><button class="button secondary field-aligned" id="rebuild-button"><svg class="icon"><use href="#i-refresh"/></svg>自动重新生成</button></div><label class="brightness-control">提前亮灯 <input id="lookahead-range" type="range" min="0" max="100" step="5" value="40"><strong id="lookahead-value">0.40 秒</strong></label><p class="setting-help">在音符起点之前预亮，给手指留出准备时间；手动模式每组保持亮灯，按 → 继续。</p></section>
+        <details class="project-info" id="project-info"><summary>识别结果与项目说明</summary><div id="project-info-body"></div></details>
+      </div></details>
+      <footer class="workspace-footer"><span>每一束光，对应一个琴键；每一种颜色，对应一根手指。</span><span>LOCAL FIRST · 为普通钢琴而作</span></footer>
+    </section>
+  </main>
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+</body>
+</html>

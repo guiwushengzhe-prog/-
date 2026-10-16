@@ -1,0 +1,3 @@
+# CPU wheels are downloaded from the official PyTorch package index by setup.sh.
+torch==2.5.1+cpu
+torchaudio==2.5.1+cpu

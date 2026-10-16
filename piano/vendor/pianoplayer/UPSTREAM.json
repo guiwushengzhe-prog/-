@@ -1,0 +1,10 @@
+{
+  "project": "PianoPlayer",
+  "version": "3.0.2",
+  "revision": "6fb0e2114d7b21f75c0be5208172e1243a57323e",
+  "repository": "https://github.com/marcomusy/pianoplayer",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2017 Marco Musy",
+  "files": ["__init__.py", "hand.py", "models.py"],
+  "modifications": "One import in hand.py changed from pianoplayer.models to .models for package isolation; otherwise unmodified. Adapter supplies corrected physical keyboard coordinates, bounded 5/7-note optimizer windows, two-hand routing and full chord/held-note constraint checks."
+}

@@ -1,0 +1,3 @@
+# Install these runtime dependencies normally, then install Basic Pitch with
+# --no-deps using requirements-basic-pitch.lock (see setup.sh).
+-r requirements-runtime.lock

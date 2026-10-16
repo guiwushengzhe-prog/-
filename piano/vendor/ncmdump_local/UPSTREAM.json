@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/Calvin-Vollerei/ncmdump-local",
+  "commit": "06c495d61e1347963fbef8d970033d5bc2f6bc0d",
+  "license": "MIT",
+  "copied_files": {
+    "ncm_core.py": "257781ab1add02128cde13a449c485d5712763188b291fe0902e7b3c9883864a",
+    "aes_lite.py": "45cc73bfed03b63d3a032698becfef10ba83ec72acbf918e805f8305493c7732"
+  },
+  "local_changes": [
+    "Minimal custom __init__.py; upstream ncm_core.py and aes_lite.py copied unchanged."
+  ],
+  "excluded": [
+    "ncm2mp3.py source-deleting CLI",
+    "GUI",
+    "network/download features"
+  ],
+  "test_builder_source": "tests/ncm_builder.py (MIT); adapted within project tests/test_ncm.py"
+}

@@ -1,0 +1,58 @@
+[
+  {
+    "test": "synthetic-mp3.ncm -> true MP3 -> automatic score/fingers/colours via HTTP",
+    "passed": true,
+    "notes": 8,
+    "downloaded_bytes": 193767,
+    "source_preserved": true,
+    "conversion": {
+      "engine": "ncmdump-local",
+      "upstream_commit": "06c495d61e1347963fbef8d970033d5bc2f6bc0d",
+      "license": "MIT",
+      "inner_format": "mp3",
+      "inner_sample_rate": 44100,
+      "inner_channels": 1,
+      "output_format": "mp3",
+      "output_sample_rate": 44100,
+      "output_channels": 1,
+      "transcoded": false,
+      "source_preserved": true,
+      "inner_audio_bytes": 193767,
+      "output_bytes": 193767,
+      "duration": 8.0,
+      "title": "Synthetic 8-note piano",
+      "artists": [
+        "Local test fixture"
+      ],
+      "album": "Album"
+    }
+  },
+  {
+    "test": "synthetic-flac.ncm -> true MP3 -> automatic score/fingers/colours via HTTP",
+    "passed": true,
+    "notes": 8,
+    "downloaded_bytes": 46132,
+    "source_preserved": true,
+    "conversion": {
+      "engine": "ncmdump-local+ffmpeg",
+      "upstream_commit": "06c495d61e1347963fbef8d970033d5bc2f6bc0d",
+      "license": "MIT",
+      "inner_format": "flac",
+      "inner_sample_rate": 44100,
+      "inner_channels": 1,
+      "output_format": "mp3",
+      "output_sample_rate": 44100,
+      "output_channels": 1,
+      "transcoded": true,
+      "source_preserved": true,
+      "inner_audio_bytes": 112139,
+      "output_bytes": 46132,
+      "duration": 8.0,
+      "title": "Synthetic 8-note piano",
+      "artists": [
+        "Local test fixture"
+      ],
+      "album": "Album"
+    }
+  }
+]

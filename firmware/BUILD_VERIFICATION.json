@@ -1,0 +1,29 @@
+{
+  "firmware_sha256": "c34692bf7d84ef79fbdc07d7f19ec926489d3e7bb902532ba50f427e2eba4171",
+  "core": "esp32:esp32@3.3.2",
+  "libraries": {
+    "FastLED": "3.10.3",
+    "ArduinoJson": "7.4.2"
+  },
+  "boards": [
+    "esp32:esp32:esp32c3",
+    "esp32:esp32:esp32s3"
+  ],
+  "arduino_cli": "1.5.2-rc.1 (fef6e48df)",
+  "firmware_sha256_after": "c34692bf7d84ef79fbdc07d7f19ec926489d3e7bb902532ba50f427e2eba4171",
+  "results": {
+    "c3": {
+      "exit_code": 0,
+      "summary": "Sketch uses 312850 bytes (23%) of program storage space. Maximum is 1310720 bytes.\nGlobal variables use 14184 bytes (4%) of dynamic memory, leaving 313496 bytes for local variables. Maximum is 327680 bytes.",
+      "binary_bytes": 312992,
+      "binary_sha256": "598b435b413639d2bb14c1d66b7d815ff22513d15041985c83120e9d32c9048e"
+    },
+    "s3": {
+      "exit_code": 0,
+      "summary": "Sketch uses 384047 bytes (29%) of program storage space. Maximum is 1310720 bytes.\nGlobal variables use 21896 bytes (6%) of dynamic memory, leaving 305784 bytes for local variables. Maximum is 327680 bytes.",
+      "binary_bytes": 384192,
+      "binary_sha256": "5814014c577b8a08db08b126869e3353567d3cb005f56b6580f0f43245c59a47"
+    }
+  },
+  "scope": "Host cross-compilation only; no flashing, physical LED or USB interoperability test."
+}
