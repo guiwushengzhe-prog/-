@@ -191,7 +191,7 @@
     const groups=state.project?.groups || [];
     const start=state.scorePage*PAGE_SIZE,end=Math.min(groups.length,start+PAGE_SIZE);
     const maxChord=groups.slice(start,end).reduce((max,group)=>{const notes=notesInGroup(group);return Math.max(max,notes.filter(note=>note.hand==='L').length,notes.filter(note=>note.hand==='R').length);},1);
-    document.querySelector('.score-wrapper').style.setProperty('--staff-height',`${Math.max(119,maxChord*38+10)}px`);
+    document.querySelector('.score-wrapper').style.setProperty('--staff-height',`${Math.max(132,maxChord*48+16)}px`);
     scoreElements=new Map();
     if(!groups.length) { $('score-grid').innerHTML='<div class="empty-score">导入一首音乐，开始你的练习。</div>';return; }
     $('score-grid').innerHTML=groups.slice(start,end).map((group,offset) => {
@@ -303,7 +303,7 @@
       if(!key)continue;
       key.classList.add('lit');key.style.setProperty('--key-color',colorFor(note));
       key.classList.toggle('preview',isPending(note));
-      key.querySelector('.key-finger').textContent=`${note.hand}${note.finger}`;
+      key.querySelector('.key-finger').textContent=String(note.finger);
     }
     for(const element of ledElements){element.classList.remove('lit');element.style.removeProperty('--led-color');}
     for(const pixel of currentPixels()){
