@@ -843,7 +843,8 @@
     if(!state.project)return;
     pause();$('rebuild-button').disabled=true;
     try{
-      const project=await post('/api/rebuild',{project:state.project,bpm:clamp(finite($('rebuild-bpm').value,90),20,300),tonic:Number($('rebuild-tonic').value),hand_size:$('hand-size').value});
+      const original=state.project.key_adaptation?.original_project||state.project;
+      const project=await post('/api/rebuild',{project:original,bpm:clamp(finite($('rebuild-bpm').value,90),20,300),tonic:Number($('rebuild-tonic').value),hand_size:$('hand-size').value});
       loadProject(project,true);
     }catch(error){toast(`自动重新生成失败：${error.message}`,'error');}
     finally{$('rebuild-button').disabled=false;}
@@ -1027,9 +1028,11 @@
     });
   }
   function projectKey(project){
+    project=project.key_adaptation?.original_project||project;
     return JSON.stringify([project.source?.kind||'score',project.source?.filename||project.source?.query||project.title]);
   }
   async function save(project,onlyIfAbsent=false){
+    project=project?.key_adaptation?.original_project||project;
     if(!project?.notes?.length||!project.groups?.length||project.source?.kind==='demo'||/demo|示例|built-in/i.test(project.transcription?.engine||''))return;
     const id=projectKey(project);
     if(onlyIfAbsent&&await storage('get',id))return;
@@ -1086,4 +1089,185 @@
   $('library-refresh').onclick=()=>refresh().catch(showError);
   window.PianoLibrary={open,refresh,list:()=>storage('getAll')};
   window.PianoLibrary.ready=refresh().catch(error=>{showError(error);throw error;});
+})();
+
+/* 邻键替代：原谱独立保留，适配后的同一份音符用于显示、指法、灯光及按键判定。 */
+(() => {
+  'use strict';
+  if(window.PianoKeyAdaptation)return;
+  const $=id=>document.getElementById(id),storageKey='piano-light-key-adaptation-v1';
+  function transform(raw,config){
+    const original=raw.key_adaptation?.original_project||raw;
+    const available=Object.keys(config.mapping||{}).map(Number).filter(p=>Number.isInteger(p)&&p>=21&&p<=108&&
+      (config.mapping[p]||[]).some(i=>Number.isInteger(i)&&i>=0&&i<config.ledCount)).sort((a,b)=>a-b);
+    if(!available.length)throw new Error('还没有已对应琴键，请先完成灯珠与琴键校准。');
+    const allowed=new Set(available),minimum=available[0],maximum=available.at(-1);
+    const stats={black:0,white:0,blackKeys:0,whiteKeys:0,merged:0,octaveShifted:0};
+    const blackKeys=new Set(),whiteKeys=new Set(),notes=[],previous={L:null,R:null};
+    const byId=new Map(original.notes.map(n=>[String(n.id),n])),seen=new Set();
+    const groups=(original.groups||[]).map(g=>({time:g.time,notes:g.note_ids.map(id=>byId.get(String(id))).filter(Boolean)}));
+    for(const group of groups)for(const n of group.notes)seen.add(String(n.id));
+    for(const n of original.notes)if(!seen.has(String(n.id))){
+      const group=groups.find(g=>Math.abs(g.time-n.start)<=0.025);
+      if(group)group.notes.push(n);else groups.push({time:n.start,notes:[n]});
+    }
+    function fold(pitch){
+      if(pitch>=minimum&&pitch<=maximum)return pitch;
+      const candidates=[];
+      for(let shift=-9;shift<=9;shift++)if(pitch+shift*12>=minimum&&pitch+shift*12<=maximum)candidates.push(pitch+shift*12);
+      return candidates.sort((a,b)=>Math.abs(a-pitch)-Math.abs(b-pitch)||a-b)[0]??pitch;
+    }
+    for(const group of groups.sort((a,b)=>a.time-b.time)){
+      const occupied=new Set(group.notes.filter(n=>allowed.has(n.pitch)).map(n=>n.pitch)),merged=new Map();
+      const ordered=[...group.notes].sort((a,b)=>Number(allowed.has(b.pitch))-Number(allowed.has(a.pitch))||a.pitch-b.pitch);
+      for(const n of ordered){
+        const side=n.hand==='L'?'L':'R',folded=fold(n.pitch);
+        let pitch=n.pitch;
+        if(!allowed.has(pitch)){
+          const distance=Math.min(...available.map(p=>Math.abs(p-folded)));
+          const candidates=available.filter(p=>Math.abs(p-folded)===distance),last=previous[side];
+          const cost=p=>{
+            let value=occupied.has(p)?3:0;
+            if(last){
+              const direction=Math.sign(n.pitch-last.original),movement=Math.sign(p-last.pitch);
+              if(direction&&movement!==direction)value+=4;
+              value+=Math.abs((p-last.pitch)-(folded-last.folded))*0.05;
+            }
+            return value;
+          };
+          pitch=candidates.sort((a,b)=>cost(a)-cost(b)||a-b)[0];
+          if([1,3,6,8,10].includes(n.pitch%12)){stats.black++;blackKeys.add(n.pitch);}
+          else{stats.white++;whiteKeys.add(n.pitch);}
+          if(folded!==n.pitch)stats.octaveShifted++;
+        }
+        occupied.add(pitch);
+        const existing=merged.get(pitch);
+        if(existing){
+          const extended=Math.max(existing.end,n.end);
+          if(existing.source_beat_duration)existing.source_beat_duration*=(extended-existing.start)/(existing.end-existing.start);
+          existing.end=extended;existing.velocity=Math.max(existing.velocity||80,n.velocity||80);
+          existing.adapted_from.push({id:n.id,pitch:n.pitch,hand:side});stats.merged++;
+        }else{
+          const {jianpu,finger,color,leds,onset_group,...clean}=n;
+          merged.set(pitch,{...clean,pitch,source_hand:side,original_pitch:n.pitch,
+            adapted_from:[{id:n.id,pitch:n.pitch,hand:side}]});
+        }
+      }
+      notes.push(...merged.values());
+      for(const side of ['L','R']){
+        const lane=group.notes.filter(n=>(n.hand==='L'?'L':'R')===side).sort((a,b)=>a.pitch-b.pitch);
+        const anchor=side==='R'?lane.at(-1):lane[0];
+        if(anchor){
+          const target=[...merged.values()].find(n=>n.adapted_from.some(from=>String(from.id)===String(anchor.id)));
+          previous[side]={original:anchor.pitch,pitch:target.pitch,folded:fold(anchor.pitch)};
+        }
+      }
+    }
+    stats.blackKeys=blackKeys.size;stats.whiteKeys=whiteKeys.size;
+    return {original,available,notes:notes.sort((a,b)=>a.start-b.start||a.pitch-b.pitch),stats};
+  }
+  let mode='original',original=null,revision=0,busy=false,lastStats=null,cached=null;
+  function config(){return JSON.parse(localStorage.getItem('piano-light-studio-calibration-v1')||'{}');}
+  function summary(){
+    const output=$('key-adaptation-summary');if(!output)return;
+    if(busy){output.textContent='正在替换未对应音符并重新计算双手指法…';return;}
+    if(mode==='nearest'&&lastStats){
+      const s=lastStats;
+      output.textContent=`全曲替代黑键音符 ${s.black} 次、白键音符 ${s.white} 次（涉及黑键 ${s.blackKeys} 个、白键 ${s.whiteKeys} 个），合并 ${s.merged} 个同音${s.octaveShifted?`，调整 ${s.octaveShifted} 个超范围音`:''}${s.extraOmitted?`，另简化 ${s.extraOmitted} 个音符`:''}。原谱保留；适配会改变原曲音高。`;
+    }else output.textContent=mode==='omit'?$('mapped-only-summary').textContent:'显示完整原谱，保留所有音符。';
+  }
+  function filter(enabled){
+    const input=$('mapped-only');
+    if(input.checked!==enabled){input.checked=enabled;input.dispatchEvent(new Event('change',{bubbles:true}));}
+  }
+  async function setMode(next,source=null,preserve=true){
+    if(!['original','omit','nearest'].includes(next))throw new Error('请选择有效的琴键适配方式。');
+    const ticket=++revision,oldMode=mode;
+    const current=source||await window.PianoProjectApi.current();
+    if(!current)return;
+    const base=current.key_adaptation?.original_project||current;
+    original=base;mode=next;lastStats=null;
+    const index=Number(document.querySelector('#score-grid .score-group.current')?.dataset.index||0);
+    const time=preserve?(current.groups[index]?.time||0):0;
+    const running=$('play-button').classList.contains('is-playing');
+    if(running)$('play-button').click();
+    $('key-adaptation-mode').value=mode;$('key-adaptation-mode').disabled=true;busy=true;summary();
+    try{
+      if(next==='nearest'){
+        const prepared=transform(base,config());
+        const key=JSON.stringify([base,prepared.available,$('hand-size').value]);
+        let result=cached?.key===key?cached.project:null;
+        if(!result){
+          const response=await fetch('/api/rebuild',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+            project:{...base,notes:prepared.notes,source_notes:prepared.notes},bpm:base.bpm,tonic:base.tonic,
+            hand_size:$('hand-size').value||base.hand_size||'M'})});
+          result=await response.json();
+          if(!response.ok)throw new Error(result.error||'重新计算指法失败。');
+          if(!result.notes?.length||result.notes.some(n=>!prepared.available.includes(n.pitch)))throw new Error('适配结果含有未对应琴键，请重新校准后再试。');
+          prepared.stats.extraOmitted=result.fingering?.omitted_note_count||0;
+          result={...result,title:`${base.title} · 邻键适配版`,duration:base.duration,
+            key_adaptation:{mode:'nearest',original_project:base,stats:prepared.stats,available:prepared.available}};
+          cached={key,project:result};
+        }
+        if(ticket!==revision)return;
+        filter(false);await window.PianoProjectApi.load(result);lastStats=result.key_adaptation.stats;
+      }else{
+        filter(next==='omit');
+        if(current.key_adaptation)await window.PianoProjectApi.load(base);
+      }
+      if(ticket!==revision)return;
+      const timeline=$('timeline');timeline.value=String(time);timeline.dispatchEvent(new Event('input',{bubbles:true}));
+      if(running&&!$('play-button').classList.contains('is-playing'))$('play-button').click();
+      $('score-grid').dispatchEvent(new MouseEvent('click',{bubbles:true}));
+      localStorage.setItem(storageKey,mode);
+    }catch(error){
+      if(ticket===revision){mode=oldMode;$('key-adaptation-mode').value=mode;filter(mode==='omit');}
+      throw error;
+    }finally{
+      if(ticket===revision){busy=false;$('key-adaptation-mode').disabled=false;summary();}
+    }
+  }
+  function showError(error){$('key-adaptation-summary').textContent=error.message;}
+  function install(){
+    const input=$('mapped-only'),container=input.closest('div');
+    input.closest('label').hidden=true;$('mapped-only-summary').hidden=true;
+    const wrap=document.createElement('div');
+    wrap.innerHTML='<label>琴键适配<select id="key-adaptation-mode" aria-label="琴键适配方式"><option value="original">完整原谱</option><option value="omit">省略未对应音</option><option value="nearest">邻键替代</option></select></label><p class="setting-help" id="key-adaptation-summary" role="status" aria-live="polite" style="margin:8px 0 0"></p>';
+    container.append(wrap);
+    mode=localStorage.getItem(storageKey)||(input.checked?'omit':'original');
+    if(!['original','omit','nearest'].includes(mode))mode='original';
+    $('key-adaptation-mode').value=mode;
+    $('key-adaptation-mode').onchange=event=>setMode(event.target.value).catch(showError);
+    document.addEventListener('click',event=>{
+      if(busy&&event.isTrusted&&event.target.closest('#play-button,#prev-button,#next-button,#score-grid .score-group')){event.preventDefault();event.stopImmediatePropagation();}
+    },true);
+    document.addEventListener('keydown',event=>{
+      if(busy&&event.isTrusted&&['Space','ArrowRight','ArrowLeft','Home'].includes(event.code)){event.preventDefault();event.stopImmediatePropagation();}
+    },true);
+    new MutationObserver(summary).observe($('mapped-only-summary'),{childList:true,subtree:true});
+    window.addEventListener('piano-project-loaded',event=>{
+      if(event.detail.key_adaptation)return;
+      original=event.detail;
+      if(mode==='nearest')setMode(mode,event.detail,false).catch(showError);else summary();
+    });
+    window.addEventListener('piano-calibration-saved',()=>{cached=null;if(mode==='nearest')setMode(mode,original).catch(showError);});
+    if(window.PianoMappedOnlyLive){
+      // 旧网页的曲库保存原谱；后台重新编配也从原谱开始。
+      window.addEventListener('piano-project-loaded',event=>{
+        if(event.detail.key_adaptation){event.stopImmediatePropagation();$('score-grid').dispatchEvent(new MouseEvent('click',{bubbles:true}));}
+      },true);
+      const fetchOriginal=window.fetch;
+      window.fetch=function(url,options){
+        if(String(url)==='/api/rebuild'&&options?.body){
+          const request=JSON.parse(options.body);
+          if(request.project?.key_adaptation){request.project=request.project.key_adaptation.original_project;options={...options,body:JSON.stringify(request)};}
+        }
+        return fetchOriginal.call(this,url,options);
+      };
+    }
+    if(mode!=='nearest')filter(mode==='omit');
+    window.PianoKeyAdaptation.ready=mode==='nearest'?setMode(mode).catch(showError):Promise.resolve(summary());
+  }
+  window.PianoKeyAdaptation={transform,setMode,get mode(){return mode;},get busy(){return busy;}};
+  install();
 })();

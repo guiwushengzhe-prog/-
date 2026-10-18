@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../static/app.js'),'utf8');
-const window={addEventListener(){},dispatchEvent(){},PianoLibrary:{}};
+const window={addEventListener(){},dispatchEvent(){},PianoLibrary:{},PianoKeyAdaptation:{}};
 const context={window,localStorage:{getItem(){return null;}},performance:{now:()=>0},
   document:{getElementById(){return {textContent:'',dataset:{}};}},
   CustomEvent:class{constructor(type,options){this.detail=options.detail;}},console};
