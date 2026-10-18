@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../static/app.js'),'utf8');
-const window={addEventListener(){},dispatchEvent(){}};
+const window={addEventListener(){},dispatchEvent(){},PianoLibrary:{}};
 const context={window,localStorage:{getItem(){return null;}},performance:{now:()=>0},
   document:{getElementById(){return {textContent:'',dataset:{}};}},
   CustomEvent:class{constructor(type,options){this.detail=options.detail;}},console};
@@ -27,6 +27,19 @@ on(61);assert.equal(state.groupIndex,0,'错音不得推进');
 on(60);assert.equal(state.groupIndex,0,'和弦未弹齐不得推进');
 on(64);assert.equal(state.groupIndex,1,'音组弹齐只推进一组');
 on(67);assert.equal(state.playing,false,'末组弹对后停止');
+setup([[60,64],[67]]);
+on(60);off(60);assert.equal(state.midiMatched.size,0,'松开立即取消该音的判对状态');
+on(64);assert.equal(state.groupIndex,0,'先后弹奏且没有同时按住不能累计通过');
+assert.deepEqual(Array.from(state.midiMatched),[64]);
+on(60);assert.equal(state.groupIndex,1,'两个音确实同时按住才能推进');
+setup([[60,64],[67]]);
+on(60);receive({data:[0x90,60,0]});on(64);
+assert.equal(state.groupIndex,0,'力度为零的按下消息也必须按松开处理');
+setup([[60,64],[67]]);
+on(60);receive({data:[0x91,60,90]});off(60);
+assert.equal(state.midiMatched.has(60),true,'另一通道仍按住同音时保持判对');
+receive({data:[0x81,60,0]});assert.equal(state.midiMatched.has(60),false);
+on(64);assert.equal(state.groupIndex,0,'所有通道均松开后不累计该音');
 setup([[60],[60],[62]]);
 on(60);assert.equal(state.groupIndex,1);
 on(60);assert.equal(state.groupIndex,1,'按住或重复按下消息不得跳过同音组');

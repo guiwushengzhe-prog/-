@@ -125,6 +125,34 @@ def set_job(job_id, **fields):
         JOBS[job_id].update(fields)
 
 
+def load_library_project(project_id):
+    if not re.fullmatch(r"[a-f0-9]{32}", project_id):
+        raise ValueError("曲谱编号无效。")
+    data = (RUNTIME / project_id / "project.json").read_bytes()
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        # Earlier Windows conversions used the system text encoding.
+        text = data.decode("gb18030")
+    project = json.loads(text)
+    if not isinstance(project, dict) or not project.get("notes") or not project.get("groups"):
+        raise ValueError("曲谱尚未转换完成。")
+    return project
+
+
+def library_entries():
+    entries = []
+    for path in RUNTIME.glob("*/project.json"):
+        try:
+            project = load_library_project(path.parent.name)
+            entries.append({"id": path.parent.name, "title": project.get("title", "未命名练习"),
+                            "note_count": len(project["notes"]), "bpm": project.get("bpm"),
+                            "duration": project.get("duration"), "updated_at": path.stat().st_mtime})
+        except (OSError, ValueError, TypeError):
+            continue
+    return sorted(entries, key=lambda entry: entry["updated_at"], reverse=True)
+
+
 def process_import(job_id, path, filename, options):
     try:
         set_job(job_id, status="running", message="读取音频与音符…")
@@ -181,7 +209,7 @@ def process_import(job_id, path, filename, options):
         project = build_project(notes, title=Path(filename).stem, bpm=bpm, tonic=tonic,
                                 hand_size=options.get("hand_size", "M"),
                                 source=source, transcription=transcription)
-        (path.parent / "project.json").write_text(json.dumps(project, ensure_ascii=False, indent=2))
+        (path.parent / "project.json").write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
         set_job(job_id, status="done", message="简谱、指法与灯光已自动生成", project=project)
     except Exception as exc:
         extra = {}
@@ -204,7 +232,7 @@ def process_midi_search(job_id, query, directory, options):
         project = build_project(notes, title=found["title"], bpm=bpm,
                                 hand_size=options.get("hand_size", "M"),
                                 source=source, transcription={"engine": "在线 MIDI / Mido", **extra})
-        (directory / "project.json").write_text(json.dumps(project, ensure_ascii=False, indent=2))
+        (directory / "project.json").write_text(json.dumps(project, ensure_ascii=False, indent=2), encoding="utf-8")
         set_job(job_id, status="done", message="MIDI 已自动下载，指法、简谱和灯光已生成", project=project)
     except Exception as exc:
         set_job(job_id, status="error", message="未能自动取得可用曲谱", error=str(exc)[:600])
@@ -255,6 +283,14 @@ class Handler(BaseHTTPRequestHandler):
                                                   "ports": LIGHTS.ports()}})
             if path == "/api/demo":
                 return self.send(200, demo_project())
+            if path == "/api/library":
+                return self.send(200, {"items": library_entries()})
+            library_match = re.fullmatch(r"/api/library/([a-f0-9]{32})", path)
+            if library_match:
+                try:
+                    return self.send(200, load_library_project(library_match[1]))
+                except (OSError, ValueError):
+                    return self.send(404, {"error": "这首曲谱不存在或尚未转换完成。"})
             audio_match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/audio\.mp3", path)
             if audio_match:
                 audio_path = RUNTIME / audio_match[1] / "converted.mp3"

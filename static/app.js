@@ -149,6 +149,7 @@
     $('loop-start').max=$('loop-end').max=String(project.duration);
     renderLegend();renderScore();renderProjectInfo();updateClock(true);updateActive(true);renderTransport();
     if (notify) toast(`已生成 ${project.groups.length} 组练习，简谱、指法与灯光已同步。`,'success');
+    window.dispatchEvent(new CustomEvent('piano-project-loaded',{detail:project}));
   }
   function renderProjectInfo() {
     const project=state.project;
@@ -212,22 +213,27 @@
     state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'点击“搜索并连接蓝牙钢琴”，直接连接琴的蓝牙 MIDI 服务。';
     renderMidiJudgement();
   }
+  function matchHeldMidiPitches(expected=midiExpectedPitches()) {
+    const held=new Set([...state.midiHeld].map(token=>Number(token.split(':')[1])));
+    state.midiJudgedGroup=state.groupIndex;
+    state.midiMatched=new Set(expected.filter(pitch=>held.has(pitch)));
+    return expected.filter(pitch=>!held.has(pitch));
+  }
   function judgeMidiPitch(pitch) {
     const pressed=`${pitchName(pitch)}（音符编号 ${pitch}）`;
     if(window.PianoLightCalibration?.active)return;
     if(state.mode==='correct'&&!state.playing){setMidiFeedback(`检测到 ${pressed}；点击「开始练习」后，弹对当前音组自动推进。`,'help');return;}
     const expected=midiExpectedPitches();
     if(!expected.length) { setMidiFeedback(`检测到 ${pressed}；当前音组在所选手别下没有音符，请调整左手／右手筛选。`,'help');return; }
+    const remaining=matchHeldMidiPitches(expected);
     if(expected.includes(pitch)) {
-      state.midiMatched.add(pitch);
-      const remaining=expected.filter(value=>!state.midiMatched.has(value));
       if(!remaining.length) {
         if(state.mode==='correct'&&state.playing){
           step(1);
           if(!state.playing)setMidiFeedback('正确！这一段练习已完成。','correct');
-        }else setMidiFeedback(`正确！本组 ${expected.length} 个不同音高都已弹到，按「下一组」继续。`,'correct');
+        }else setMidiFeedback(`正确！本组 ${expected.length} 个不同音高已同时按住，按「下一组」继续。`,'correct');
       }
-      else setMidiFeedback(`弹对 ${pressed}（${state.midiMatched.size}/${expected.length}），还需 ${remaining.map(pitchName).join('、')}。`,'correct');
+      else setMidiFeedback(`当前同时按住 ${state.midiMatched.size}/${expected.length} 个音，还需同时按住 ${remaining.map(pitchName).join('、')}。`,'help');
     } else {
       setMidiFeedback(`弹错 ${pressed}；当前组需要 ${expected.map(pitchName).join('、')}。`,'wrong');
     }
@@ -263,7 +269,15 @@
     const [status,pitch,velocity]=event.data || [];
     window.dispatchEvent(new CustomEvent('piano-midi-message',{detail:Array.from(event.data || [])}));
     const token=`${status&15}:${pitch}`;
-    if((status&0xf0)===0x80||((status&0xf0)===0x90&&velocity===0)){state.midiHeld.delete(token);return;}
+    if((status&0xf0)===0x80||((status&0xf0)===0x90&&velocity===0)){
+      state.midiHeld.delete(token);
+      if(!window.PianoLightCalibration?.active&&(state.mode!=='correct'||state.playing)){
+        const expected=midiExpectedPitches(),remaining=matchHeldMidiPitches(expected);
+        if(expected.length&&remaining.length)setMidiFeedback(`当前同时按住 ${state.midiMatched.size}/${expected.length} 个音，还需同时按住 ${remaining.map(pitchName).join('、')}。`,'help');
+        else renderMidiJudgement();
+      }
+      return;
+    }
     if((status & 0xf0)===0x90 && velocity>0) {
       if(state.midiHeld.has(token))return;
       state.midiHeld.add(token);
@@ -537,7 +551,7 @@
     $('play-icon').querySelector('use').setAttribute('href',state.playing?'#i-pause':'#i-play');
     $('play-button').classList.toggle('is-playing',state.playing);
     $('play-button').setAttribute('aria-label',state.playing?'暂停练习':'开始练习');
-    $('mode-hint').textContent=state.mode==='correct'?'当前音组持续亮灯，实体琴键全部弹对后自动进入下一组；弹错不前进。空格暂停／继续，需要连接钢琴。':state.mode==='manual'?'当前音组持续亮灯，按 → 或「下一组」推进；空格熄灯／继续。普通钢琴无需接入电子琴键。':`灯光提前 ${state.lookahead.toFixed(2)} 秒提示。空格播放／暂停，← → 跳转音组；普通钢琴按设定速度跟练。`;
+    $('mode-hint').textContent=state.mode==='correct'?'当前音组持续亮灯，要求的琴键必须同时按住才进入下一组；松开即取消，逐个弹不累计。空格暂停／继续，需要连接钢琴。':state.mode==='manual'?'当前音组持续亮灯，按 → 或「下一组」推进；空格熄灯／继续。普通钢琴无需接入电子琴键。':`灯光提前 ${state.lookahead.toFixed(2)} 秒提示。空格播放／暂停，← → 跳转音组；普通钢琴按设定速度跟练。`;
     $('speed-range').disabled=state.mode!=='timed';
     $('speed-control')?.classList.toggle('disabled',state.mode!=='timed');
     $('loop-button').classList.toggle('active',state.loop);$('loop-button').setAttribute('aria-pressed',String(state.loop));
@@ -975,9 +989,101 @@
   }
   window.PianoLightMidiEvents=true;
   window.PianoCorrectAdvanceNative=true;
+  window.PianoSimultaneousNative=true;
   window.PianoMappedOnlyNative=true;
+  window.PianoProjectApi={current:()=>state.project,load:project=>loadProject(project)};
   window.addEventListener('piano-calibration-saved',()=>{
     config=readConfig();populateCalibration();renderKeyboard();renderScore();updateActive(true);
   });
   initialize();
+})();
+
+/* 已转换曲谱的本机曲库；浏览器保存曲谱，后台补入历史转换结果。 */
+(() => {
+  'use strict';
+  if(window.PianoLibrary)return;
+  const $=id=>document.getElementById(id);
+  const section=document.createElement('section');section.className='sidebar-section piano-library';
+  section.setAttribute('aria-label','已转换曲谱曲库');
+  section.innerHTML='<div class="library-heading"><h2>我的曲库</h2><button type="button" class="text-button" id="library-refresh">刷新</button></div><p class="setting-help" id="library-status" role="status">正在读取已转换的曲谱…</p><div id="library-list"></div>';
+  document.querySelector('.sidebar-section').after(section);
+  const style=document.createElement('style');
+  style.textContent='.library-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.library-heading h2{font-size:18px;margin:0}.piano-library .setting-help{margin:8px 0 12px}.library-song{display:block;width:100%;text-align:left;background:var(--panel-deep);border:1px solid var(--border);border-radius:9px;padding:11px 12px;margin:8px 0;color:var(--text)}.library-song:hover{border-color:var(--accent)}.library-song[aria-current="true"]{border-color:var(--accent);background:var(--accent-soft)}.library-song strong{display:block;overflow-wrap:anywhere;font-size:14px}.library-song small{display:block;color:var(--muted);margin-top:5px;font-size:12px}';
+  document.head.append(style);
+  const database=new Promise((resolve,reject)=>{
+    const opening=indexedDB.open('piano-light-library-v1',1);
+    opening.onupgradeneeded=()=>opening.result.createObjectStore('scores',{keyPath:'id'});
+    opening.onsuccess=()=>resolve(opening.result);
+    opening.onerror=()=>reject(new Error('浏览器未能保存曲库，请检查本机存储空间。'));
+  });
+  async function storage(method,value){
+    const db=await database;
+    return new Promise((resolve,reject)=>{
+      const tx=db.transaction('scores',method==='put'?'readwrite':'readonly');
+      const query=tx.objectStore('scores')[method](value);
+      tx.oncomplete=()=>resolve(query.result);
+      tx.onerror=()=>reject(tx.error||new Error('曲库读写失败。'));
+      tx.onabort=()=>reject(tx.error||new Error('曲库保存未完成。'));
+    });
+  }
+  function projectKey(project){
+    return JSON.stringify([project.source?.kind||'score',project.source?.filename||project.source?.query||project.title]);
+  }
+  async function save(project,onlyIfAbsent=false){
+    if(!project?.notes?.length||!project.groups?.length||project.source?.kind==='demo'||/demo|示例|built-in/i.test(project.transcription?.engine||''))return;
+    const id=projectKey(project);
+    if(onlyIfAbsent&&await storage('get',id))return;
+    // 琴谱独立于本机灯珠校准和当前练习进度。
+    const {calibration,ui_settings,...score}=project;
+    await storage('put',{id,project:score,savedAt:Date.now()});
+  }
+  async function render(){
+    const entries=(await storage('getAll')).sort((a,b)=>b.savedAt-a.savedAt);
+    const current=await window.PianoProjectApi?.current();
+    $('library-list').replaceChildren();
+    for(const {id,project} of entries){
+      const button=document.createElement('button');button.type='button';button.className='library-song';
+      button.dataset.libraryId=id;button.setAttribute('aria-current',String(!!current&&projectKey(current)===id));
+      const title=document.createElement('strong');title.textContent=project.title||'未命名练习';
+      const detail=document.createElement('small'),seconds=Math.max(0,Math.round(project.duration||0));
+      detail.textContent=`${project.notes.length} 音符 · ${Math.round(project.bpm||90)} 拍/分钟 · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
+      button.append(title,detail);button.onclick=()=>open(id).catch(showError);$('library-list').append(button);
+    }
+    $('library-status').textContent=entries.length?`${entries.length} 首已转换曲谱，点击即可练习。以后转换完成会自动加入。`:'还没有已转换曲谱。导入音乐并完成转谱后会自动加入。';
+    return entries;
+  }
+  async function open(id){
+    const entry=await storage('get',id);
+    if(!entry)throw new Error('没有找到这首曲谱，请刷新曲库。');
+    if(!window.PianoProjectApi?.load)throw new Error('曲谱载入入口尚未就绪。');
+    await window.PianoProjectApi.load(entry.project);
+    await render();
+    $('library-status').textContent=`已载入「${entry.project.title}」，可以开始练习。`;
+  }
+  function showError(error){$('library-status').textContent=error.message||'读取曲库失败。';}
+  async function refresh(){
+    $('library-refresh').disabled=true;
+    try{
+      let jobs=[];
+      const response=await fetch('/api/library');
+      if(response.ok)jobs=(await response.json()).items||[];
+      // 已连接的旧网页沿用既有任务接口，避免重连钢琴。
+      else if(response.status===404)jobs=(window.PianoLibraryLegacyJobs||[]).map(id=>({id,legacy:true}));
+      else throw new Error('读取历史曲谱失败，请稍后刷新。');
+      for(const job of jobs){
+        const result=await fetch(job.legacy?`/api/jobs/${job.id}`:`/api/library/${job.id}`);
+        if(!result.ok)continue;
+        const data=await result.json();
+        await save(job.legacy?data.project:data,true);
+      }
+      await save(await window.PianoProjectApi?.current(),true);
+      return await render();
+    }finally{$('library-refresh').disabled=false;}
+  }
+  window.addEventListener('piano-project-loaded',event=>{
+    save(event.detail).then(render).catch(showError);
+  });
+  $('library-refresh').onclick=()=>refresh().catch(showError);
+  window.PianoLibrary={open,refresh,list:()=>storage('getAll')};
+  window.PianoLibrary.ready=refresh().catch(error=>{showError(error);throw error;});
 })();
