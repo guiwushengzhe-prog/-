@@ -10,7 +10,7 @@
   const STORAGE_KEY = 'piano-light-studio-calibration-v1';
   const PAGE_SIZE = 80;
   let config = readConfig();
-  const state = {project:null, noteById:new Map(), time:0, playing:false, mode:'timed', hand:'both', rate:1,
+  const state = {project:null, noteById:new Map(), time:0, playing:false, mode:'timed', hand:'both', rate:1, mappedOnly:readMappedOnly(),
     groupIndex:0, scorePage:0, activeSignature:'', activeNotes:[], lastClockPaint:0, anchorTime:0, anchorNow:0,
     loop:false, loopA:0, loopB:0, lookahead:config.lookahead, serialConnected:false, serialBusy:false,
     serialLastSent:0, serialLastFrame:'', serialForceClear:false, importing:false, loadRevision:0,
@@ -164,7 +164,33 @@
     $('project-info-body').innerHTML=`<p>转谱：${escapeHTML(transcription)}<br>指法：${escapeHTML(fingering)}<br>${arrangement}简谱为练习视图，按 4/4 参考分组，保留识别所得的起止时间。</p>${provenance}<p>蓝牙 MIDI 输入连接后，可按当前高亮音组校对实时音高；音频转谱稿可能有误。定速模式按时间自动推进，练习校对建议使用手动模式固定当前音组。</p>${warnings?`<ul>${warnings}</ul>`:''}`;
     $('project-info').open=!!warnings;
   }
-  function selected(note) { return state.hand === 'both' || note.hand === state.hand; }
+  function readMappedOnly(){try{return localStorage.getItem('piano-light-studio-mapped-only-v1')==='true';}catch(_){return false;}}
+  function mappedPitch(pitch){return (config.mapping[pitch] || []).some(index=>Number.isInteger(index)&&index>=0&&index<config.ledCount);}
+  function selected(note) { return !!note && (state.hand === 'both' || note.hand === state.hand) && (!state.mappedOnly || mappedPitch(note.pitch)); }
+  function mappedOnlyStats(){
+    let black=0,white=0;const blackKeys=new Set(),whiteKeys=new Set();
+    for(const note of state.project?.notes || []){
+      if((state.hand!=='both'&&note.hand!==state.hand)||mappedPitch(note.pitch))continue;
+      if([1,3,6,8,10].includes(note.pitch%12)){black++;blackKeys.add(note.pitch);}
+      else{white++;whiteKeys.add(note.pitch);}
+    }
+    return {black,white,blackKeys:blackKeys.size,whiteKeys:whiteKeys.size};
+  }
+  function renderMappedOnlySummary(){
+    const input=$('mapped-only'),summary=$('mapped-only-summary');if(!input||!summary)return;
+    input.checked=state.mappedOnly;const counts=mappedOnlyStats();
+    summary.textContent=`${state.mappedOnly?'已':'开启将'}省略黑键音符 ${counts.black} 次、白键音符 ${counts.white} 次（涉及黑键 ${counts.blackKeys} 个、白键 ${counts.whiteKeys} 个；按当前手别统计）。`;
+  }
+  function setMappedOnly(enabled){
+    const resume=state.playing;pause();state.mappedOnly=enabled;
+    try{localStorage.setItem('piano-light-studio-mapped-only-v1',String(enabled));}catch(_){}
+    if(state.project&&!groupHasSelected(state.groupIndex)){
+      const next=state.project.groups.findIndex((group,index)=>index>=state.groupIndex&&groupHasSelected(index));
+      if(next>=0){state.groupIndex=next;state.time=state.project.groups[next].time;state.scorePage=Math.floor(next/PAGE_SIZE);}
+    }
+    resetMidiJudgement();renderScore();renderTransport();updateActive(true);updateClock(true);
+    if(resume)play();
+  }
   function notesInGroup(group) { return (group?.note_ids || []).map(id => state.noteById.get(String(id))).filter(Boolean); }
   function groupHasSelected(index) { return notesInGroup(state.project?.groups[index]).some(selected); }
   function midiExpectedPitches() {
@@ -370,6 +396,7 @@
     return `<span class="numbered-note ${rhythm}" title="${escapeHTML(pitchName(note.pitch))} · ${Number(beats.toFixed(2))} 拍"><span class="octave-dots">${octave>0?'·'.repeat(octave):'&nbsp;'}</span><span class="note-value">${accidentals?`<span class="accidental">${escapeHTML(accidentals)}</span>`:''}${escapeHTML(number)}${extension?`<span class="extension">${extension}</span>`:''}${dot?'<span class="duration-dot">·</span>':''}</span><span class="octave-dots">${octave<0?'·'.repeat(-octave):'&nbsp;'}</span></span>`;
   }
   function renderScore() {
+    renderMappedOnlySummary();
     const groups=state.project?.groups || [];
     const start=state.scorePage*PAGE_SIZE,end=Math.min(groups.length,start+PAGE_SIZE);
     const maxChord=groups.slice(start,end).reduce((max,group)=>{const notes=notesInGroup(group);return Math.max(max,notes.filter(note=>note.hand==='L').length,notes.filter(note=>note.hand==='R').length);},1);
@@ -378,7 +405,8 @@
     if(!groups.length) { $('score-grid').innerHTML='<div class="empty-score">导入一首音乐，开始你的练习。</div>';return; }
     $('score-grid').innerHTML=groups.slice(start,end).map((group,offset) => {
       const index=start+offset;
-      const notes=notesInGroup(group);
+      const notes=notesInGroup(group).filter(note=>!state.mappedOnly||mappedPitch(note.pitch));
+      if(state.mappedOnly&&!notes.some(selected))return '';
       const handMarkup=hand => {
         const handNotes=notes.filter(note => note.hand===hand).sort((a,b)=>b.pitch-a.pitch);
         return `<div class="score-hand ${state.hand!=='both' && state.hand!==hand?'filtered':''}">${handNotes.length?handNotes.map(note=>`<span class="score-note" data-note="${escapeHTML(note.id)}" style="--finger-color:${colorFor(note)}">${degreeMarkup(note)}<span class="note-finger" title="${hand==='R'?'右':'左'}手 ${note.finger} 指">${note.finger}</span></span>`).join(''):'<span class="score-rest">·</span>'}</div>`;
@@ -806,7 +834,7 @@
     finally{$('rebuild-button').disabled=false;}
   }
   function exportedProject() {
-    return {...state.project,calibration:{...config},ui_settings:{playback_rate:state.rate,hand_filter:state.hand,mode:state.mode,lookahead_seconds:state.lookahead,loop:state.loop?{start:state.loopA,end:state.loopB}:null}};
+    return {...state.project,calibration:{...config},ui_settings:{playback_rate:state.rate,hand_filter:state.hand,mode:state.mode,mapped_only:state.mappedOnly,lookahead_seconds:state.lookahead,loop:state.loop?{start:state.loopA,end:state.loopB}:null}};
   }
   function download(data,filename,mime='application/json;charset=utf-8') {
     const blob=data instanceof Blob?data:new Blob([typeof data==='string'?data:JSON.stringify(data,null,2)],{type:mime});
@@ -868,6 +896,7 @@
     return {title:'练习示例 · C 大调入门',bpm,tonic:0,key_label:'1 = C',duration:time,notes,groups,warnings:[],palette,fingering:{engine:'内置示例指法'},transcription:{engine:'built-in demo'},notation:{meter_assumed:true}};
   }
   function bindEvents() {
+    $('mapped-only').addEventListener('change',event=>setMappedOnly(event.target.checked));
     $('file-input').addEventListener('change',event=>importFile(event.target.files[0]));
     const zone=$('drop-zone');
     zone.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();if(!state.importing)$('file-input').click();}});
@@ -945,8 +974,9 @@
   }
   window.PianoLightMidiEvents=true;
   window.PianoCorrectAdvanceNative=true;
+  window.PianoMappedOnlyNative=true;
   window.addEventListener('piano-calibration-saved',()=>{
-    config=readConfig();populateCalibration();renderKeyboard();updateActive(true);
+    config=readConfig();populateCalibration();renderKeyboard();renderScore();updateActive(true);
   });
   initialize();
 })();

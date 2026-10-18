@@ -11,14 +11,14 @@ const instrumented=source.replace('  initialize();',`
   renderMidiJudgement=()=>{};updateActive=()=>{};updateClock=()=>{};renderTransport=()=>{};
   updateScoreCurrent=()=>{if(state.midiJudgedGroup!==state.groupIndex)resetMidiJudgement();};
   syncSerial=()=>{};toast=()=>{};
-  window.test={state,handleMidiMessage,judgeMidiPitch,resetMidiJudgement,step};`);
+  window.test={state,config,handleMidiMessage,judgeMidiPitch,resetMidiJudgement,step,mappedOnlyStats,selected,midiExpectedPitches};`);
 vm.runInNewContext(instrumented,context);
 const {state,handleMidiMessage:receive,resetMidiJudgement,step}=window.test;
 function setup(groups,hand='both'){
   const notes=groups.flatMap((pitches,index)=>pitches.map((pitch,n)=>({id:`${index}:${n}`,pitch,hand:n?'L':'R'})));
-  state.project={duration:10,groups:groups.map((p,index)=>({time:index,note_ids:notes.filter(n=>n.id.startsWith(index+':')).map(n=>n.id)}))};
+  state.project={duration:10,notes,groups:groups.map((p,index)=>({time:index,note_ids:notes.filter(n=>n.id.startsWith(index+':')).map(n=>n.id)}))};
   state.noteById=new Map(notes.map(n=>[n.id,n]));state.mode='correct';state.playing=true;
-  state.groupIndex=0;state.hand=hand;state.loop=false;state.midiHeld.clear();resetMidiJudgement();
+  state.groupIndex=0;state.hand=hand;state.loop=false;state.mappedOnly=false;state.midiHeld.clear();resetMidiJudgement();
 }
 const on=pitch=>receive({data:[0x90,pitch,90]});
 const off=pitch=>receive({data:[0x80,pitch,0]});
@@ -38,3 +38,16 @@ setup([[60]]);state.loop=true;state.loopA=0;state.loopB=1;on(60);
 assert.equal(state.playing,true);assert.equal(state.midiMatched.size,0,'单音组循环须清空上一轮判定');
 off(60);on(60);assert.equal(state.playing,true);
 console.log('弹对推进：错音、和弦、重按、暂停、手别、循环检查通过。');
+setup([[60,61,62],[61],[37],[64]]);
+state.mappedOnly=true;window.test.config.mapping={60:[13],64:[14],62:[],37:[999]};
+const omitted=window.test.mappedOnlyStats();
+assert.equal(omitted.black,3,'黑键按音符出现次数统计');
+assert.equal(omitted.blackKeys,2,'另列不同黑键数量，越界映射不能当已对应');
+assert.equal(omitted.white,1,'未对应白键同样省略');
+assert.equal(omitted.whiteKeys,1);
+assert.deepEqual(Array.from(window.test.midiExpectedPitches()),[60],'混合音组只要求已对应的音');
+on(60);assert.equal(state.groupIndex,3,'弹对后跳过全部未对应的音组');
+on(64);assert.equal(state.playing,false,'已对应的末组正常结束');
+state.mappedOnly=false;assert.equal(window.test.selected({pitch:62,hand:'R'}),true,'关闭选项恢复未对应琴键');
+state.mappedOnly=true;state.hand='L';assert.equal(window.test.mappedOnlyStats().black,1,'统计遵守当前手别');
+console.log('只练已对应琴键：黑白键次数与种类、无效映射、混合音组、跳组、关闭恢复、手别检查通过。');
