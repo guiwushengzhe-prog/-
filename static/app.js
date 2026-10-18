@@ -498,7 +498,8 @@
       const r=parseInt(color.slice(0,2),16),g=parseInt(color.slice(2,4),16),b=parseInt(color.slice(4,6),16);
       const indices=mapping[note.pitch];
       if(!Array.isArray(indices))continue;
-      for(const index of indices)if(Number.isInteger(index) && index>=0 && index<config.ledCount)pixels.set(index,{index,r,g,b});
+      const index=indices.find(index=>Number.isInteger(index) && index>=0 && index<config.ledCount);
+      if(index!==undefined)pixels.set(index,{index,r,g,b});
     }
     return [...pixels.values()].sort((a,b)=>a.index-b.index);
   }
