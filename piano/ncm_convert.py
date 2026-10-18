@@ -1,17 +1,43 @@
-"""Local, source-preserving NCM conversion using the vendored MIT core."""
+"""本地 NCM 转换；Windows 使用 taurusxin/ncmdump，保留原始文件。"""
 from __future__ import annotations
 
 import os
 from pathlib import Path
 import struct
 import subprocess
+import sys
 import tempfile
 from typing import Callable
 
-from .vendor.ncmdump_local import NcmError, decrypt_to_file
+from .vendor.ncmdump_local import NcmError, decrypt_to_file as legacy_decrypt_to_file
+from .vendor.ncmdump_local.ncm_core import decrypt_file
+from .download_ncmdump import COMMIT, ensure_ncmdump
 
 MAX_DURATION = 600.0
-UPSTREAM_COMMIT = "06c495d61e1347963fbef8d970033d5bc2f6bc0d"
+UPSTREAM_COMMIT = COMMIT if os.name == "nt" else "06c495d61e1347963fbef8d970033d5bc2f6bc0d"
+
+
+def decrypt_to_file(source, destination, chunk_size=1 << 20):
+    if os.name != "nt":
+        return legacy_decrypt_to_file(source, destination, chunk_size=chunk_size)
+    # 原实现仅用于读取歌曲元数据，实际音频解密改用新的开源库。
+    result = decrypt_file(source, read_audio=False)
+    dll = ensure_ncmdump()
+    with tempfile.TemporaryDirectory(prefix="decrypt-", dir=Path(destination).parent) as folder:
+        command = [sys.executable, "-m", "piano.ncmdump_native", str(source), folder, str(dll)]
+        try:
+            decoded = subprocess.run(command, cwd=Path(__file__).resolve().parents[1],
+                                     capture_output=True, timeout=120, check=False)
+        except subprocess.TimeoutExpired as exc:
+            raise NcmError("开源转换库处理超时（120秒）。") from exc
+        if decoded.returncode != 0:
+            raise NcmError("开源转换库未能恢复音频。")
+        files = list(Path(folder).glob("*"))
+        if len(files) != 1 or not files[0].is_file():
+            raise NcmError("开源转换库没有生成音频。")
+        result.audio_len = files[0].stat().st_size
+        os.replace(files[0], destination)
+    return result
 
 
 class NcmConversionError(ValueError):
@@ -34,12 +60,13 @@ def _validate_container_lengths(source: Path) -> None:
                     or (encrypted and (length == 0 or length % 16 != 0))):
                 raise NcmConversionError(f"NCM {label}长度异常或数据不完整。")
             handle.seek(length, os.SEEK_CUR)
-        trailer = handle.read(9)
-        if len(trailer) != 9:
+        trailer = handle.read(13)
+        if len(trailer) != 13:
             raise NcmConversionError("NCM 封面长度字段缺失，容器已损坏。")
         cover_length = struct.unpack("<I", trailer[5:9])[0]
-        audio_offset = handle.tell() + max(cover_length, 4)
-        if audio_offset > size:
+        image_length = struct.unpack("<I", trailer[9:13])[0]
+        audio_offset = handle.tell() + cover_length
+        if image_length > cover_length or audio_offset > size:
             raise NcmConversionError("NCM 封面长度异常，音频区不完整。")
         if audio_offset == size:
             raise NcmConversionError("NCM 音频区为空。")
@@ -123,7 +150,7 @@ def convert_ncm(source, output_mp3, progress: Callable[[str], None] | None = Non
         if converted_info.format.upper() not in {"MP3", "MPEG"}:
             raise NcmConversionError("转换器没有生成真正的 MP3，已拒绝输出。")
         metadata = {
-            "engine": "ncmdump-local+ffmpeg" if transcoded else "ncmdump-local",
+            "engine": ("taurusxin-ncmdump" if os.name == "nt" else "ncmdump-local") + ("+ffmpeg" if transcoded else ""),
             "upstream_commit": UPSTREAM_COMMIT,
             "license": "MIT",
             "inner_format": inner_format,

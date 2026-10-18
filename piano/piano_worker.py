@@ -170,7 +170,7 @@ def transcribe(path, output, max_duration=600):
         result["metadata"]["conversion"] = conversion
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent, suffix=".json", delete=False) as temp:
-        json.dump(result, temp, ensure_ascii=False, allow_nan=False)
+        json.dump(result, temp, ensure_ascii=True, allow_nan=False)
         temporary_name = temp.name
     os.replace(temporary_name, output)
     progress(f"钢琴转谱完成，共 {len(notes)} 个音符", stage="complete")

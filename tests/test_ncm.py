@@ -13,7 +13,7 @@ Layout, matching what the reference implementation reads (see ncm_core._parse_he
 
     "CTENFDAM" | 2 pad | u32 key_len | key blob
     u32 meta_len | metadata blob
-    "00 00 00 00" | 0x01 | u32 cover_len | cover bytes | audio
+    "00 00 00 00" | 0x01 | u32 cover_frame_len | u32 image_len | cover bytes | audio
 """
 from __future__ import annotations
 
@@ -142,17 +142,15 @@ def build(audio: bytes, title: str = "Test Song", artists=("Artist A",),
     ks = keystream(keydata, len(audio))
     audio_enc = bytes(a ^ b for a, b in zip(audio, ks))
 
-    # no cover still reserves 4 bytes, which is why the parser uses max(cover_len, 4)
-    block = cover if cover else b"\x00\x00\x00\x00"
-    if len(block) < 4:
-        block = block + b"\x00" * (4 - len(block))
+    # 真实容器分别存储封面框长度和图片长度；没有封面时两个字段均为零。
+    block = cover
 
     out = bytearray()
     out += b"CTENFDAM\x01\x70"
     out += struct.pack("<I", len(key_enc)) + key_enc
     out += struct.pack("<I", len(meta_enc)) + meta_enc
     out += b"\x00\x00\x00\x00" + b"\x01"
-    out += struct.pack("<I", len(block)) + block
+    out += struct.pack("<II", len(block), len(cover)) + block
     out += audio_enc
     return bytes(out)
 
@@ -167,6 +165,7 @@ def write(path, audio: bytes, **kwargs):
 # These are synthesized NCM containers around our own test audio. They do not
 # represent a successful test on an actual file downloaded from NetEase.
 import io
+import os
 import subprocess
 import tempfile
 import unittest
@@ -233,6 +232,15 @@ class NcmConversionTests(unittest.TestCase):
         self.assertAlmostEqual(sf.info(target).duration, 8.0, delta=.1)
         self.assertEqual(source.read_bytes(), before)
 
+    def test_cover_length_fields_do_not_shift_audio(self):
+        source = self.folder / "with-cover.ncm"
+        source.write_bytes(build(self.mp3, fmt="mp3", cover=b"synthetic-cover"))
+        before = source.read_bytes()
+        target = self.folder / "with-cover.mp3"
+        convert_ncm(source, target)
+        self.assertEqual(target.read_bytes(), self.mp3)
+        self.assertEqual(source.read_bytes(), before)
+
     def test_damaged_headers_lengths_and_empty_audio_do_not_publish(self):
         valid = build(self.mp3, fmt="mp3")
         key_length = struct.unpack("<I", valid[10:14])[0]
@@ -263,8 +271,12 @@ class NcmConversionTests(unittest.TestCase):
     def test_transcode_timeout_does_not_publish_or_delete_source(self):
         source = self.fixture(self.flac, fmt="flac")
         target = self.folder / "timeout.mp3"
-        with mock.patch("piano.ncm_convert.subprocess.run",
-                        side_effect=subprocess.TimeoutExpired("ffmpeg", 120)):
+        original_run = subprocess.run
+        def timeout_encoder(command, *args, **kwargs):
+            if "-codec:a" in command:
+                raise subprocess.TimeoutExpired("ffmpeg", 120)
+            return original_run(command, *args, **kwargs)
+        with mock.patch("piano.ncm_convert.subprocess.run", side_effect=timeout_encoder):
             with self.assertRaisesRegex(NcmConversionError, "120"):
                 convert_ncm(source, target)
         self.assertFalse(target.exists())
@@ -287,11 +299,12 @@ class NcmConversionTests(unittest.TestCase):
         output = self.folder / "notes.json"
         worker = APP / "piano" / "transcribe_worker.py"
         completed = subprocess.run([sys.executable, str(worker), str(source), str(output)],
-                                   cwd=self.folder, capture_output=True, text=True, timeout=90)
+                                   cwd=self.folder, capture_output=True, text=True, encoding="utf-8", timeout=90,
+                                   env={**os.environ, "PYTHONIOENCODING": "utf-8"})
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         progress_rows = [json.loads(line) for line in completed.stdout.splitlines()]
         self.assertTrue(any(row.get("stage") == "convert" for row in progress_rows))
-        result = json.loads(output.read_text())
+        result = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(len(result["notes"]), 8)
         self.assertCountEqual([n["pitch"] for n in result["notes"]], [60, 62, 64, 67, 72, 60, 64, 67])
         for pitch, onset in [(60, .35), (62, 1.35), (64, 2.35), (67, 3.35), (72, 4.35),

@@ -167,7 +167,7 @@ def process_import(job_id, path, filename, options):
                 except ValueError:
                     pass
                 raise ValueError(detail or "自动转谱未完成，请检查音频格式和本地模型安装。")
-            result = json.loads(output.read_text())
+            result = json.loads(output.read_text(encoding="utf-8"))
             notes = result["notes"]
             detected_bpm = result.get("bpm", result.get("metadata", {}).get("bpm", 100))
             transcription = {k: v for k, v in result.items() if k != "notes"}

@@ -30,8 +30,16 @@
 - Revision: `06c495d61e1347963fbef8d970033d5bc2f6bc0d`.
 - License: MIT. Retained LICENSE, NOTICE and provenance are inside `piano/vendor/ncmdump_local/`.
 - Subset: `aes_lite.py`, `ncm_core.py`, a minimal package entry point. The upstream GUI and CLI (including its source-file deletion option) are excluded.
-- Original adapter `piano/ncm_convert.py` streams the container to a temporary file, validates decoded audio and preserves source files. Non-MP3 payloads use installed FFmpeg for actual MP3 encoding.
+- 该实现现用于读取歌曲元数据和保留非 Windows 的旧兼容路径；Windows 的实际音频解密已替换为下述 taurusxin/ncmdump。原适配器仍验证可解码音频、保留源文件，非 MP3 音频由 FFmpeg 实际转码。
 - `imageio-ffmpeg==0.6.0` is installed from PyPI; its wrapper is BSD-2-Clause, while the included FFmpeg binary and codecs retain their own upstream licenses. It is not included in this source archive.
+
+### taurusxin/ncmdump
+
+- 上游：https://github.com/taurusxin/ncmdump ，固定版本1.5.1，提交 `76a55d862f767ee20ae417ecd128fde442eea77f`。
+- 许可证：MIT，原文保留于 `licenses/ncmdump-LICENSE`。
+- Windows 使用上游官方64位动态库（其他程序可调用的组件）执行音频解密；不调用会改写音频标签的 `FixMetadata`，因此 MP3 音频字节保持原样。
+- `piano/download_ncmdump.py` 在项目 `.runtime/tools/ncmdump` 下准备固定组件，校验压缩包和动态库的 SHA-256（文件内容校验值）。不安装到系统目录，不删除原始文件。
+- 官方压缩包 SHA-256：`fecd4ef9e9baa6c48a6ada7a733b0df7633dccbbe0d6da457ba61304fae0477c`；动态库 SHA-256：`77ee6fb899cb118567a9908c6e018b1d696ba353de6ffd9e3f960fd367822865`。
 
 ### Spotify Basic Pitch
 

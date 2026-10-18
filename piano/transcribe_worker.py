@@ -213,7 +213,7 @@ def transcribe(input_path: Path, output_path: Path, max_duration: float = 600.0)
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output_path.parent,
                                          prefix=".transcription-", suffix=".json", delete=False) as handle:
             temporary_name = handle.name
-            json.dump(result, handle, ensure_ascii=False, allow_nan=False)
+            json.dump(result, handle, ensure_ascii=True, allow_nan=False)
         os.replace(temporary_name, output_path)
     finally:
         if temporary_name and os.path.exists(temporary_name):
