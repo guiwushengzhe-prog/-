@@ -130,5 +130,5 @@
     }
   }
 
-  window.BleMidi = {connect};
+  window.BleMidi = {connect, createDecoder};
 })();

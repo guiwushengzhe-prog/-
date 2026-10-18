@@ -187,15 +187,16 @@
     renderMidiJudgement();
   }
   function judgeMidiPitch(pitch) {
+    const pressed=`${pitchName(pitch)}（音符编号 ${pitch}）`;
     const expected=midiExpectedPitches();
-    if(!expected.length) { setMidiFeedback('当前音组在所选手别下没有音符，请调整左手／右手筛选。','help');return; }
+    if(!expected.length) { setMidiFeedback(`检测到 ${pressed}；当前音组在所选手别下没有音符，请调整左手／右手筛选。`,'help');return; }
     if(expected.includes(pitch)) {
       state.midiMatched.add(pitch);
       const remaining=expected.filter(value=>!state.midiMatched.has(value));
       if(!remaining.length) setMidiFeedback(`正确！本组 ${expected.length} 个不同音高都已弹到，按「下一组」继续。`,'correct');
-      else setMidiFeedback(`弹对 ${pitchName(pitch)}（${state.midiMatched.size}/${expected.length}），还需 ${remaining.map(pitchName).join('、')}。`,'correct');
+      else setMidiFeedback(`弹对 ${pressed}（${state.midiMatched.size}/${expected.length}），还需 ${remaining.map(pitchName).join('、')}。`,'correct');
     } else {
-      setMidiFeedback(`弹错 ${pitchName(pitch)}；当前组需要 ${expected.map(pitchName).join('、')}。`,'wrong');
+      setMidiFeedback(`弹错 ${pressed}；当前组需要 ${expected.map(pitchName).join('、')}。`,'wrong');
     }
   }
   function setMidiConnection(message,type='') {
@@ -226,7 +227,10 @@
   }
   function handleMidiMessage(event) {
     const [status,pitch,velocity]=event.data || [];
-    if((status & 0xf0)===0x90 && velocity>0) judgeMidiPitch(pitch);
+    window.dispatchEvent(new CustomEvent('piano-midi-message',{detail:Array.from(event.data || [])}));
+    if((status & 0xf0)===0x90 && velocity>0) {
+      judgeMidiPitch(pitch);
+    }
   }
   async function toggleBluetoothMidi(includeAllDevices=false) {
     if(state.midiBleConnection) {
@@ -570,6 +574,7 @@
     requestAnimationFrame(animate);
   }
   async function syncSerial() {
+    if(window.PianoLightCalibration?.active)return;
     if(!state.serialConnected || state.serialBusy)return;
     const now=performance.now();
     // Maximum 12.5 Hz; unchanged frames are sent only as a 500 ms watchdog heartbeat.
@@ -921,5 +926,9 @@
       try{loadProject(results[1].value);}catch(error){toast(`示例载入失败：${error.message}`,'error');}
     }
   }
+  window.PianoLightMidiEvents=true;
+  window.addEventListener('piano-calibration-saved',()=>{
+    config=readConfig();populateCalibration();renderKeyboard();updateActive(true);
+  });
   initialize();
 })();

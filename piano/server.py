@@ -25,6 +25,10 @@ MAX_UPLOAD = 64 * 1024 * 1024
 JOBS = {}
 JOB_LOCK = threading.Lock()
 IMPORT_LOCK = threading.Lock()
+MIDI_EVENT_LOCK = threading.Lock()
+MIDI_EVENT = {"sequence": 0, "pitch": None, "velocity": None, "received_at": None}
+CALIBRATION_LOCK = threading.Lock()
+CALIBRATION_FILE = RUNTIME / "led-calibration.json"
 WORKER = ROOT / "piano" / ("transcribe_worker.py" if os.environ.get("PIANO_TRANSCRIPTION_ENGINE") == "basic-pitch" else "piano_worker.py")
 ENGINE_PYTHON = os.environ.get("PIANO_ENGINE_PYTHON", sys.executable)
 
@@ -264,9 +268,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200 if job else 404, job or {"error": "任务不存在。"})
             if path == "/api/ports":
                 return self.send(200, {"ports": LIGHTS.ports()})
+            if path == "/api/midi/latest":
+                with MIDI_EVENT_LOCK:
+                    return self.send(200, dict(MIDI_EVENT))
+            if path == "/api/calibration":
+                with CALIBRATION_LOCK:
+                    saved = json.loads(CALIBRATION_FILE.read_text(encoding="utf-8")) if CALIBRATION_FILE.exists() else {"records": {}, "state": "idle"}
+                return self.send(200, saved)
             static = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/app.js": ("app.js", "text/javascript; charset=utf-8"),
                       "/ble_midi.js": ("ble_midi.js", "text/javascript; charset=utf-8"),
+                      "/calibrate.js": ("calibrate.js", "text/javascript; charset=utf-8"),
                       "/style.css": ("style.css", "text/css; charset=utf-8")}
             if path in static:
                 filename, mime = static[path]
@@ -312,6 +324,31 @@ class Handler(BaseHTTPRequestHandler):
             request = json.loads(self.body())
             if not isinstance(request, dict):
                 raise ValueError("请求应为 JSON 对象。")
+            if path == "/api/calibration":
+                records = request.get("records", {})
+                if not isinstance(records, dict) or len(records) > 512 or any(
+                    not str(k).isdigit() or not 0 <= int(k) < 512 or type(v) is not int or not 0 <= v <= 127
+                    for k, v in records.items()
+                ):
+                    raise ValueError("灯珠与音符编号无效。")
+                request["updated_at"] = time.time()
+                with CALIBRATION_LOCK:
+                    CALIBRATION_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    temporary = CALIBRATION_FILE.with_suffix(".tmp")
+                    temporary.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
+                    temporary.replace(CALIBRATION_FILE)
+                return self.send(200, request)
+            if path == "/api/midi/event":
+                status, pitch, velocity = (request.get(key) for key in ("status", "pitch", "velocity"))
+                if any(type(value) is not int for value in (status, pitch, velocity)):
+                    raise ValueError("MIDI 音符事件应包含整数状态、音高和力度。")
+                if not 0 <= status <= 255 or status & 0xF0 != 0x90 or not 0 <= pitch <= 127 or not 1 <= velocity <= 127:
+                    raise ValueError("仅接受有效的 MIDI 按键事件。")
+                with MIDI_EVENT_LOCK:
+                    MIDI_EVENT.update(sequence=MIDI_EVENT["sequence"] + 1, pitch=pitch,
+                                      velocity=velocity, received_at=time.time())
+                    event = dict(MIDI_EVENT)
+                return self.send(200, event)
             if path == "/api/search-midi":
                 query_text = str(request.get("query", "")).strip()
                 if not 1 <= len(query_text) <= 120 or any(ord(c) < 32 for c in query_text):
