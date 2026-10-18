@@ -14,7 +14,9 @@
     groupIndex:0, scorePage:0, activeSignature:'', activeNotes:[], lastClockPaint:0, anchorTime:0, anchorNow:0,
     loop:false, loopA:0, loopB:0, lookahead:config.lookahead, serialConnected:false, serialBusy:false,
     serialLastSent:0, serialLastFrame:'', serialForceClear:false, importing:false, loadRevision:0,
-    maxNoteDuration:0, testUntil:0, testNotes:[], testPixels:null, renderedCurrent:-1};
+    maxNoteDuration:0, testUntil:0, testNotes:[], testPixels:null, renderedCurrent:-1,
+    midiAccess:null, midiInput:null, midiBleConnection:null, midiMatched:new Set(), midiJudgedGroup:-1,
+    midiFeedback:'点“搜索并连接蓝牙钢琴”，再从浏览器弹出的列表中选择设备。', midiFeedbackType:''};
   const keyElements = new Map();
   let ledElements = [];
   let scoreElements = new Map();
@@ -121,7 +123,7 @@
     state.noteById = new Map(project.notes.map(note => [String(note.id),note]));
     state.maxNoteDuration = project.notes.reduce((max,note) => Math.max(max,note.end-note.start),0);
     state.time=0;state.groupIndex=0;state.scorePage=0;state.loopA=0;state.loopB=project.duration;
-    state.renderedCurrent=-1;state.activeSignature='';
+    state.renderedCurrent=-1;state.activeSignature='';state.midiJudgedGroup=-1;state.midiMatched.clear();
     $('song-title').textContent=project.title;
     $('song-key').textContent=project.key_label || `1 = ${pitchClasses[project.tonic]}`;
     $('song-bpm').textContent=`${Math.round(project.bpm)} BPM`;
@@ -159,12 +161,176 @@
     const sourceCount=project.fingering?.source_note_count || project.notes.length;
     const arrangement=sourceCount!==project.notes.length?`从 ${sourceCount} 个源音符自动编配为 ${project.notes.length} 个练习音符，原始音符保留在项目中。`:`共 ${project.notes.length} 个音符，${project.groups.length} 组同时发音。`;
     const provenance=project.source?.kind==='midi-search'?`<p>搜索曲名：${escapeHTML(project.source.query)}<br>曲库：${escapeHTML(project.source.provider)}<br>来源许可：${escapeHTML(project.source.license || '未注明')}<br>自动指法是为练习安排的建议，不代表原版谱的指法。</p>`:'';
-    $('project-info-body').innerHTML=`<p>转谱：${escapeHTML(transcription)}<br>指法：${escapeHTML(fingering)}<br>${arrangement}简谱为练习视图，按 4/4 参考分组，保留识别所得的起止时间。</p>${provenance}<p>普通钢琴的定速模式按时间自动推进；手动模式由你切换音组。灯光包含提前预亮的下一音，按同列简谱判断同时发音。当前版本不从麦克风判断弹奏是否正确。</p>${warnings?`<ul>${warnings}</ul>`:''}`;
+    $('project-info-body').innerHTML=`<p>转谱：${escapeHTML(transcription)}<br>指法：${escapeHTML(fingering)}<br>${arrangement}简谱为练习视图，按 4/4 参考分组，保留识别所得的起止时间。</p>${provenance}<p>蓝牙 MIDI 输入连接后，可按当前高亮音组校对实时音高；音频转谱稿可能有误。定速模式按时间自动推进，练习校对建议使用手动模式固定当前音组。</p>${warnings?`<ul>${warnings}</ul>`:''}`;
     $('project-info').open=!!warnings;
   }
   function selected(note) { return state.hand === 'both' || note.hand === state.hand; }
   function notesInGroup(group) { return (group?.note_ids || []).map(id => state.noteById.get(String(id))).filter(Boolean); }
   function groupHasSelected(index) { return notesInGroup(state.project?.groups[index]).some(selected); }
+  function midiExpectedPitches() {
+    return [...new Set(notesInGroup(state.project?.groups[state.groupIndex]).filter(selected).map(note=>note.pitch))];
+  }
+  function renderMidiJudgement() {
+    const feedback=$('midi-feedback');
+    if(feedback) { feedback.textContent=state.midiFeedback;feedback.dataset.state=state.midiFeedbackType; }
+    document.querySelectorAll('.score-note').forEach(element=>{
+      const note=state.noteById.get(element.dataset.note);
+      element.classList.toggle('midi-correct',!!note && state.midiJudgedGroup===state.groupIndex && state.midiMatched.has(note.pitch));
+    });
+  }
+  function setMidiFeedback(message,type='') {
+    state.midiFeedback=message;state.midiFeedbackType=type;renderMidiJudgement();
+  }
+  function resetMidiJudgement() {
+    state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';
+    state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'点击“搜索并连接蓝牙钢琴”，直接连接琴的蓝牙 MIDI 服务。';
+    renderMidiJudgement();
+  }
+  function judgeMidiPitch(pitch) {
+    const expected=midiExpectedPitches();
+    if(!expected.length) { setMidiFeedback('当前音组在所选手别下没有音符，请调整左手／右手筛选。','help');return; }
+    if(expected.includes(pitch)) {
+      state.midiMatched.add(pitch);
+      const remaining=expected.filter(value=>!state.midiMatched.has(value));
+      if(!remaining.length) setMidiFeedback(`正确！本组 ${expected.length} 个不同音高都已弹到，按「下一组」继续。`,'correct');
+      else setMidiFeedback(`弹对 ${pitchName(pitch)}（${state.midiMatched.size}/${expected.length}），还需 ${remaining.map(pitchName).join('、')}。`,'correct');
+    } else {
+      setMidiFeedback(`弹错 ${pitchName(pitch)}；当前组需要 ${expected.map(pitchName).join('、')}。`,'wrong');
+    }
+  }
+  function setMidiConnection(message,type='') {
+    const status=$('midi-connection-status');status.textContent=message;status.dataset.state=type;
+  }
+  function midiInputs() {
+    return [...(state.midiAccess?.inputs.values() || [])].filter(input=>input.state!=='disconnected');
+  }
+  function renderMidiInputs() {
+    const select=$('midi-input');
+    const inputs=midiInputs();
+    const selectedId=state.midiInput?.id || select.value;
+    select.innerHTML=`<option value="">${inputs.length?'选择 MIDI 输入设备':'未发现 MIDI 输入设备'}</option>${inputs.map((input,index)=>{
+      const label=[input.name,input.manufacturer].filter(Boolean).join(' · ') || `MIDI 输入 ${index+1}`;
+      return `<option value="${escapeHTML(input.id)}">${escapeHTML(label)}</option>`;
+    }).join('')}`;
+    select.disabled=!inputs.length;
+    if(inputs.some(input=>input.id===selectedId)) select.value=selectedId;
+    else if(inputs.length===1) select.value=inputs[0].id;
+    return inputs;
+  }
+  async function ensureMidiAccess() {
+    if(typeof navigator.requestMIDIAccess!=='function') throw new Error('此浏览器不支持网页 MIDI，请使用新版 Edge 或 Chrome。');
+    if(state.midiAccess)return state.midiAccess;
+    state.midiAccess=await navigator.requestMIDIAccess({sysex:false});
+    state.midiAccess.onstatechange=handleMidiStateChange;
+    return state.midiAccess;
+  }
+  function handleMidiMessage(event) {
+    const [status,pitch,velocity]=event.data || [];
+    if((status & 0xf0)===0x90 && velocity>0) judgeMidiPitch(pitch);
+  }
+  async function toggleBluetoothMidi(includeAllDevices=false) {
+    if(state.midiBleConnection) {
+      const connection=state.midiBleConnection;state.midiBleConnection=null;connection.disconnect();
+      $('midi-ble-connect').textContent='搜索并连接蓝牙钢琴';
+      $('midi-ble-all').disabled=false;
+      setMidiConnection('已断开');resetMidiJudgement();return;
+    }
+    try {
+      let closingInput=Promise.resolve();
+      if(state.midiInput) {
+        const input=state.midiInput;state.midiInput=null;input.onmidimessage=null;
+        closingInput=input.close().catch(()=>{});
+        $('midi-connect').textContent='连接 MIDI';
+      }
+      setMidiConnection('等待选择钢琴');setMidiFeedback('请在浏览器弹出的蓝牙设备列表中选择钢琴。');
+      let connection=null;
+      const pendingConnection=window.BleMidi.connect({includeAllDevices,
+        onMessage:data=>handleMidiMessage({data}),
+        onDisconnected:()=>{
+          if(!state.midiBleConnection && !connection)return;
+          if(state.midiBleConnection!==connection)return;
+          state.midiBleConnection=null;$('midi-ble-connect').textContent='搜索并连接蓝牙钢琴';
+          $('midi-ble-all').disabled=false;
+          setMidiConnection('蓝牙已断开','error');resetMidiJudgement();
+        }});
+      connection=await pendingConnection;
+      state.midiBleConnection=connection;
+      await closingInput;
+      $('midi-ble-connect').textContent='断开蓝牙 MIDI';
+      $('midi-ble-all').disabled=true;
+      setMidiConnection(`已连接：${connection.name}`,'connected');resetMidiJudgement();
+    } catch(error) {
+      $('midi-ble-connect').textContent='搜索并连接蓝牙钢琴';
+      $('midi-ble-all').disabled=false;
+      setMidiConnection('蓝牙连接失败','error');
+      let message=error.message || '无法连接蓝牙 MIDI 设备。';
+      if(error.name==='NotFoundError') message='未选择设备或列表中没有可见设备。请确认钢琴已开机，并先断开手机的 MIDI 连接；找不到时再试“全部设备”。';
+      else if(error.name==='SecurityError') message='浏览器没有蓝牙权限，请在新版 Chrome 或 Edge 中打开本机页面。';
+      else if(error.name==='NetworkError') message='蓝牙连接中断，或所选设备没有可用的 MIDI 蓝牙服务。';
+      setMidiFeedback(message,'help');
+    }
+  }
+  function handleMidiStateChange(event) {
+    const port=event.port;
+    renderMidiInputs();
+    if(state.midiInput && port?.id===state.midiInput.id && port.state==='disconnected') {
+      state.midiInput.onmidimessage=null;state.midiInput=null;
+      $('midi-connect').textContent='连接 MIDI';
+      setMidiConnection('MIDI 设备已断开','error');resetMidiJudgement();
+    } else if(port?.type==='input' && port.state==='connected' && !state.midiInput) {
+      setMidiConnection('发现 MIDI 输入');setMidiFeedback('已发现输入设备，请选择后连接。');
+    }
+  }
+  async function scanMidiDevices() {
+    try {
+      await ensureMidiAccess();
+      const inputs=renderMidiInputs();
+      if(!inputs.length) {
+        setMidiConnection('未发现输入设备');
+        setMidiFeedback('电脑没有提供 MIDI 输入端口。蓝牙琴请点上方“搜索并连接蓝牙钢琴”，不依赖 Windows 的设备分类。','help');
+      } else {
+        setMidiConnection(state.midiInput?`已连接：${state.midiInput.name || 'MIDI 输入'}`:`发现 ${inputs.length} 个输入`,state.midiInput?'connected':'');
+        if(!state.midiInput)setMidiFeedback('选择 MIDI 输入设备后，点击「连接 MIDI」。');
+      }
+    } catch(error) {
+      setMidiConnection('无法扫描','error');setMidiFeedback(error.message || '浏览器拒绝了 MIDI 访问。','wrong');
+    }
+  }
+  async function connectMidiInput(input) {
+    if(!input) { setMidiFeedback('请先选择一个 MIDI 输入设备。','help');return; }
+    if(state.midiInput?.id===input.id) return;
+    const previous=state.midiInput;
+    if(previous) { previous.onmidimessage=null;try{await previous.close();}catch(_){} }
+    state.midiInput=null;
+    try {
+      await input.open();
+      if(input.state==='disconnected')throw new Error('连接时 MIDI 设备已断开，请重新扫描。');
+      state.midiInput=input;input.onmidimessage=handleMidiMessage;
+      $('midi-connect').textContent='断开 MIDI';
+      setMidiConnection(`已连接：${input.name || 'MIDI 输入'}`,'connected');resetMidiJudgement();
+    } catch(error) {
+      $('midi-connect').textContent='连接 MIDI';setMidiConnection('连接失败','error');setMidiFeedback(error.message || '无法打开这个 MIDI 输入设备。','wrong');
+    }
+  }
+  async function toggleMidiConnection() {
+    if(state.midiInput) {
+      const input=state.midiInput;state.midiInput=null;input.onmidimessage=null;
+      try{await input.close();}catch(_){}
+      $('midi-connect').textContent='连接 MIDI';setMidiConnection('已断开');resetMidiJudgement();return;
+    }
+    try {
+      const access=await ensureMidiAccess();
+      const inputs=renderMidiInputs();
+      const input=access.inputs.get($('midi-input').value) || (inputs.length===1?inputs[0]:null);
+      if(!input) {
+        setMidiConnection(inputs.length?'请选择输入设备':'未发现输入设备',inputs.length?'':'error');
+        setMidiFeedback(inputs.length?'请选择一个 MIDI 输入设备后再连接。':'请先在 Windows 蓝牙设置中配对键盘，再扫描设备。','help');return;
+      }
+      await connectMidiInput(input);
+    } catch(error) {
+      setMidiConnection('无法连接','error');setMidiFeedback(error.message || '浏览器拒绝了 MIDI 访问。','wrong');
+    }
+  }
   function indexAt(time) {
     const groups=state.project?.groups || [];
     let low=0,high=groups.length;
@@ -210,6 +376,11 @@
     updateScoreCurrent(false);
   }
   function updateScoreCurrent(autoscroll=true) {
+    if(state.midiJudgedGroup!==state.groupIndex) {
+      state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';
+      state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'点击“搜索并连接蓝牙钢琴”，直接连接琴的蓝牙 MIDI 服务。';
+    }
+    renderMidiJudgement();
     if(state.renderedCurrent===state.groupIndex)return;
     const previous=scoreElements.get(state.renderedCurrent);
     if(previous) { previous.classList.remove('current');previous.removeAttribute('aria-current'); }
@@ -684,6 +855,15 @@
     window.addEventListener('dragover',event=>event.preventDefault());window.addEventListener('drop',event=>event.preventDefault());
     $('demo-button').addEventListener('click',loadDemo);
     $('midi-search-form').addEventListener('submit',searchMidi);
+    $('midi-ble-connect').addEventListener('click',()=>toggleBluetoothMidi(false));
+    $('midi-ble-all').addEventListener('click',()=>toggleBluetoothMidi(true));
+    $('midi-refresh').addEventListener('click',scanMidiDevices);
+    $('midi-connect').addEventListener('click',toggleMidiConnection);
+    $('midi-input').addEventListener('change',event=>{
+      if(!state.midiInput)return;
+      const input=state.midiAccess?.inputs.get(event.target.value);
+      if(input)connectMidiInput(input);
+    });
     $('play-button').addEventListener('click',play);$('prev-button').addEventListener('click',()=>step(-1));$('next-button').addEventListener('click',()=>step(1));
     $('timeline').addEventListener('input',event=>seek(Number(event.target.value)));
     $('speed-range').addEventListener('input',event=>{
@@ -697,7 +877,7 @@
     });
     $('hand-filter').addEventListener('click',event=>{
       const button=event.target.closest('[data-hand]');if(!button)return;
-      state.hand=button.dataset.hand;renderScore();renderTransport();updateActive(true);
+      state.hand=button.dataset.hand;resetMidiJudgement();renderScore();renderTransport();updateActive(true);
     });
     $('score-grid').addEventListener('click',event=>{const button=event.target.closest('[data-index]');if(button){const index=Number(button.dataset.index);seek(state.project.groups[index].time,index);}});
     $('score-page-prev').addEventListener('click',()=>{state.scorePage=Math.max(0,state.scorePage-1);renderScore();$('score-scroll').scrollLeft=0;});

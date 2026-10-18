@@ -53,6 +53,16 @@ The Linux installer can download CPython 3.11.14 from Astral's python-build-stan
 
 FastLED (https://github.com/FastLED/FastLED) and ArduinoJson (https://github.com/bblanchon/ArduinoJson) are MIT. Arduino ESP32 and its toolchain have their own retained package licenses. These dependencies are downloaded for builds and are not vendored in this source delivery. No compiled firmware is represented as hardware-tested.
 
+## 蓝牙 MIDI（乐器数字接口）浏览器支持
+
+### BLE-MIDI/WebMIDI
+
+- 上游项目：https://github.com/BLE-MIDI/WebMIDI
+- 版本：`0597f4092514607654ed3166527bea645d42188e`。
+- 许可证：Apache-2.0，副本保存在 `licenses/BLE-MIDI-WebMIDI-LICENSE`。
+- 接入内容：`static/ble_midi.js` 采用上游的浏览器连接流程并解析蓝牙 MIDI 数据包。它从浏览器直接打开标准蓝牙 MIDI 服务，因此不需要 Windows 先为设备创建 MIDI 输入端口。
+- 运行要求：支持网页蓝牙的 Chromium（铬内核）浏览器，且钢琴正在广播蓝牙 MIDI 服务。手机应用可能占用设备连接；电脑连接前应先在手机端断开。
+
 ## Evaluated, not incorporated
 
 PRamoneda/Automatic-Piano-Fingering (MIT research implementation), ByteDance piano_transcription and qiuqiangkong/piano_transcription_inference (separate code/model provenance), Chirality (AGPL with separate statistical-data considerations), onlaj/Piano-LED-Visualizer (MIT), serifpersia/pianolux-esp32 (MIT) and tiefenb/piano-vision-automatic-fingering-assignment (MIT) were reviewed as alternatives. No source code or pretrained weights from these projects is distributed here. A short upstream piano recording was used only in local validation and is excluded from deliverables.

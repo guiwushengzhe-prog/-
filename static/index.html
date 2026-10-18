@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#10151e">
   <title>琴光 · 钢琴灯光工作台</title>
   <link rel="stylesheet" href="/style.css">
+  <script defer src="/ble_midi.js"></script>
   <script defer src="/app.js"></script>
 </head>
 <body>
@@ -93,6 +94,12 @@
       <section class="keyboard-card panel">
         <div class="panel-heading"><div><div class="eyebrow">03 / 琴键指引</div><h3>琴键与灯光</h3></div><span class="mapping-badge" id="mapping-badge">示例映射 · 安装后请校准</span></div>
         <div class="live-readout"><span class="live-label"><span class="status-dot" id="playing-dot"></span><span id="live-status">准备就绪</span></span><div class="live-notes" id="live-notes"><span class="muted">点击开始，查看音符与指法</span></div><span class="current-group" id="current-group">第 1 组</span></div>
+        <div class="midi-checker" aria-labelledby="midi-heading">
+          <div class="midi-checker-heading"><div><h4 id="midi-heading">蓝牙 MIDI（乐器数字接口）实时校对</h4><p>网页直接连接钢琴的蓝牙 MIDI 服务（低功耗蓝牙），绕过 Windows 的“音频”分类。</p></div><span class="midi-connection-status" id="midi-connection-status" data-state="">未连接</span></div>
+          <div class="midi-controls midi-ble-controls"><button class="button primary" id="midi-ble-connect">搜索并连接蓝牙钢琴</button><button class="button secondary" id="midi-ble-all">全部设备</button></div>
+          <p class="midi-feedback" id="midi-feedback" data-state="" aria-live="polite">点“搜索并连接蓝牙钢琴”，再从浏览器弹出的列表中选择设备。若未出现，可点“全部设备”再选；若钢琴正连着手机，请先在手机的 MIDI 应用中断开。</p>
+          <details class="midi-system-fallback"><summary>改用 USB 或 Windows MIDI（乐器数字接口）输入</summary><div class="midi-controls"><label class="midi-device-label">电脑 MIDI 输入设备<select id="midi-input" disabled><option value="">请先扫描设备</option></select></label><button class="button secondary" id="midi-refresh">扫描</button><button class="button secondary" id="midi-connect">连接 MIDI</button></div></details>
+        </div>
         <div class="keyboard-scroll" id="keyboard-scroll"><div class="keyboard" id="keyboard" role="img" aria-label="虚拟钢琴，亮起颜色对应手指"></div></div>
         <div class="led-preview"><div class="led-caption"><span>LED 灯带</span><small id="led-count-label">144 颗 · 亮度 15%</small></div><div class="led-track" id="led-track" aria-label="LED 灯带实时预览"></div></div>
         <div class="finger-legend" id="finger-legend" aria-label="十指颜色图例"></div>

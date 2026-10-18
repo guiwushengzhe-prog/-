@@ -186,3 +186,34 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; }
   .speed-control input { flex: 1; min-width: 55px; }
   .settings .connection-row .field-aligned { margin-top: 0; }
 }
+
+.midi-checker { margin: 0 24px 18px; padding: 15px; border: 1px solid #354254; border-radius: 10px; background: #171f2c; }
+.midi-checker-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.midi-checker-heading h4 { font-size: 14px; font-weight: 600; }
+.midi-checker-heading p { margin-top: 3px; color: var(--muted); font-size: 11px; }
+.midi-connection-status { flex-shrink: 0; padding: 3px 8px; border: 1px solid #465367; border-radius: 20px; color: var(--soft); font-size: 10px; }
+.midi-connection-status[data-state="connected"] { border-color: #4b9370; color: #8be0b0; }
+.midi-connection-status[data-state="error"] { border-color: #945c58; color: #ffaaa0; }
+.midi-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: 8px; margin-top: 11px; }
+.midi-ble-controls { grid-template-columns: minmax(0, 1fr) auto; }
+.midi-device-label { min-width: 0; color: var(--soft); font-size: 11px; }
+.midi-device-label select { display: block; width: 100%; min-height: 37px; margin-top: 5px; font-size: 11px; }
+.midi-controls .button { min-height: 37px; padding: 7px 11px; font-size: 11px; }
+.midi-feedback { min-height: 1.5em; margin-top: 10px; color: var(--soft); font-size: 11px; }
+.midi-feedback[data-state="correct"] { color: #8be0b0; }
+.midi-feedback[data-state="wrong"] { color: #ffaaa0; }
+.midi-feedback[data-state="help"] { color: #e7c98f; }
+.midi-system-fallback { margin-top: 8px; color: var(--muted); font-size: 10px; }
+.midi-system-fallback > summary { width: fit-content; cursor: pointer; }
+.midi-system-fallback > summary:hover { color: var(--soft); }
+.score-note.midi-correct { outline: 2px solid #78c8a0; outline-offset: 1px; background: #78c8a02a; }
+@media (max-width: 760px) {
+  .midi-checker { margin: 0 15px 15px; padding: 12px; }
+  .midi-checker-heading h4 { font-size: 12px; }
+  .midi-checker-heading p { font-size: 10px; }
+  .midi-controls { grid-template-columns: 1fr 1fr; gap: 7px; }
+  .midi-ble-controls { grid-template-columns: minmax(0, 1fr) auto; }
+  .midi-device-label { grid-column: 1 / -1; }
+  .midi-controls .button { width: 100%; font-size: 10px; }
+  .midi-feedback { font-size: 10px; }
+}

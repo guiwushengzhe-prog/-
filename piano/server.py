@@ -266,6 +266,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"ports": LIGHTS.ports()})
             static = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+                      "/ble_midi.js": ("ble_midi.js", "text/javascript; charset=utf-8"),
                       "/style.css": ("style.css", "text/css; charset=utf-8")}
             if path in static:
                 filename, mime = static[path]

@@ -5,6 +5,7 @@ __pycache__/
 .DS_Store
 *.pyo
 .pytest_cache/
+.playwright-cli/
 piano/vendor/transkun/pretrained/*.pt
 piano/vendor/transkun/pretrained/*.tmp
 piano/vendor/transkun/pretrained/.transkun-model-*.part
