@@ -93,7 +93,7 @@ input[type=number], input[type=text], select { min-height: 42px; font-size: 14px
 .note-value .accidental { font-size: 14px; }
 .note-value .extension { font-size: 15px; color: var(--soft); }
 .octave-dots { color: var(--text); font-weight: 700; }
-.note-finger { width: 25px; height: 27px; font-size: 14px; font-weight: 750; border-radius: 6px; background: var(--finger-color); border-color: transparent; color: #111925; }
+.note-finger { width: 25px; height: 27px; font-size: 14px; font-weight: 750; border-radius: 6px; background: var(--finger-color); border-color: transparent; color: var(--finger-ink, #111925); }
 .score-rest { color: #92a1b7; }
 .score-caption { align-items: center; flex-wrap: wrap; padding: 12px 20px; font-size: 12px; color: var(--soft); background: #192536; }
 .score-caption > span { max-width: none; font-size: inherit; }
@@ -133,7 +133,7 @@ input[type=range]::-moz-range-thumb { width: 11px; height: 11px; }
 .legend-hand { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 9px; }
 .legend-hand-label { grid-column: 1 / -1; width: auto; font-size: 13px; font-weight: 600; color: var(--soft); }
 .finger-item { flex-direction: column; gap: 6px; font-size: 12px; color: var(--soft); }
-.finger-swatch { width: 28px; height: 28px; font-size: 14px; font-weight: 750; border-radius: 7px; background: var(--finger-color); color: #111925; border: none; }
+.finger-swatch { width: 28px; height: 28px; font-size: 14px; font-weight: 750; border-radius: 7px; background: var(--finger-color); color: var(--finger-ink, #111925); border: none; }
 .settings > summary { font-size: 14px; color: var(--soft); }
 .settings h4 { font-size: 15px; font-weight: 600; }
 .settings .field-aligned { margin-top: 28px; }

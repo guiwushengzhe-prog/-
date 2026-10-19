@@ -5,8 +5,8 @@
   const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
   const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
-  const palette = {L1:'#68D2E7',L2:'#62A8F5',L3:'#9D8AEF',L4:'#C88CE8',L5:'#E994B8',R1:'#FA7B63',R2:'#F4B95A',R3:'#D8DF65',R4:'#8FCB78',R5:'#4AD8AC'};
-  const fiveFingerColors = ['#FF0000','#FFFF00','#00FF00','#0080FF','#FF00FF'];
+  const palette = {L1:'#FF2020',L2:'#FF8000',L3:'#FFFF00',L4:'#80FF00',L5:'#00FF00',R1:'#00FFFF',R2:'#0040FF',R3:'#8000FF',R4:'#FF00FF',R5:'#FFFFFF'};
+  const fiveFingerColors = ['#FF2020','#FFFF00','#00FF00','#0040FF','#FFFFFF'];
   const pitchClasses = ['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
   const STORAGE_KEY = 'piano-light-studio-calibration-v1';
   const PAGE_SIZE = 80;
@@ -171,8 +171,16 @@
   function colorFor(note) {
     if(state.fiveColors&&fiveFingerColors[note.finger-1])return fiveFingerColors[note.finger-1];
     const key = `${note.hand}${note.finger}`;
-    const value = note.color || state.project?.palette?.[key] || palette[key];
+    const value = palette[key] || note.color || state.project?.palette?.[key];
     return /^#[0-9a-f]{6}$/i.test(value || '') ? value : palette[key] || '#E7BC78';
+  }
+  function fingerStyle(note){
+    const color=colorFor(note),channels=[1,3,5].map(offset=>{
+      const value=parseInt(color.slice(offset,offset+2),16)/255;
+      return value<=.04045?value/12.92:((value+.055)/1.055)**2.4;
+    });
+    const light=channels[0]*.2126+channels[1]*.7152+channels[2]*.0722;
+    return `--finger-color:${color};--finger-ink:${light>.2?'#111925':'#FFFFFF'}`;
   }
   function readFiveColors(){try{return localStorage.getItem('piano-light-five-colors-v1')==='true';}catch(_){return false;}}
   function setFiveColors(enabled){
@@ -183,7 +191,7 @@
   }
   function installFiveColors(){
     const controls=document.createElement('div');controls.style.cssText='padding:0 24px 14px';
-    controls.innerHTML='<label class="checkbox-label"><input type="checkbox" id="five-color-mode">五色指法：左右手同指同色</label><p class="setting-help" style="margin:6px 0 0">开启：拇指红、食指黄、中指绿、无名指蓝、小指紫红；关闭：恢复原十指配色。</p>';
+    controls.innerHTML='<label class="checkbox-label"><input type="checkbox" id="five-color-mode">五色指法：左右手同指同色</label><p class="setting-help" style="margin:6px 0 0">开启：拇指红、食指黄、中指绿、无名指蓝、小指白；关闭：使用新版十色指法配色。</p>';
     $('finger-legend').before(controls);$('five-color-mode').checked=state.fiveColors;
     $('five-color-mode').addEventListener('change',event=>setFiveColors(event.target.checked));
   }
@@ -566,7 +574,7 @@
       if(state.mappedOnly&&!notes.some(selected))return '';
       const handMarkup=hand => {
         const handNotes=notes.filter(note => note.hand===hand).sort((a,b)=>b.pitch-a.pitch);
-        return `<div class="score-hand ${state.hand!=='both' && state.hand!==hand?'filtered':''}">${handNotes.length?handNotes.map(note=>`<span class="score-note" data-note="${escapeHTML(note.id)}" style="--finger-color:${colorFor(note)}">${degreeMarkup(note)}<span class="note-finger" title="${hand==='R'?'右':'左'}手 ${note.finger} 指">${note.finger}</span></span>`).join(''):'<span class="score-rest">·</span>'}</div>`;
+        return `<div class="score-hand ${state.hand!=='both' && state.hand!==hand?'filtered':''}">${handNotes.length?handNotes.map(note=>`<span class="score-note" data-note="${escapeHTML(note.id)}" style="${fingerStyle(note)}">${degreeMarkup(note)}<span class="note-finger" title="${hand==='R'?'右':'左'}手 ${note.finger} 指">${note.finger}</span></span>`).join(''):'<span class="score-rest">·</span>'}</div>`;
       };
       return `<button class="score-group ${index===state.groupIndex?'current':''} ${index<state.groupIndex?'played':''}" data-index="${index}" aria-label="第 ${index+1} 音组，${timeLabel(group.time,true)}，${notes.map(note=>pitchName(note.pitch)).join('、')}"><span class="group-label"><strong>${String(index+1).padStart(2,'0')}</strong><span>${timeLabel(group.time)}</span></span>${handMarkup('R')}${handMarkup('L')}</button>`;
     }).join('');
@@ -603,7 +611,7 @@
   }
   function renderLegend() {
     const names=['拇指','食指','中指','无名指','小指'];
-    $('finger-legend').innerHTML=['L','R'].map(hand=>`<div class="legend-hand"><span class="legend-hand-label">${hand==='L'?'左手':'右手'}</span>${names.map((name,index)=>`<span class="finger-item" style="--finger-color:${colorFor({hand,finger:index+1})}"><span class="finger-swatch">${index+1}</span>${name}</span>`).join('')}</div>`).join('');
+    $('finger-legend').innerHTML=['L','R'].map(hand=>`<div class="legend-hand"><span class="legend-hand-label">${hand==='L'?'左手':'右手'}</span>${names.map((name,index)=>`<span class="finger-item" style="${fingerStyle({hand,finger:index+1})}"><span class="finger-swatch">${index+1}</span>${name}</span>`).join('')}</div>`).join('');
   }
   function renderKeyboard() {
     keyElements.clear();

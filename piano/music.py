@@ -8,10 +8,10 @@ from bisect import bisect_right
 from collections import defaultdict
 
 PALETTE = {
-    "L1": "#fb7185", "L2": "#f59e0b", "L3": "#facc15",
-    "L4": "#a3e635", "L5": "#34d399",
-    "R1": "#22d3ee", "R2": "#60a5fa", "R3": "#818cf8",
-    "R4": "#c084fc", "R5": "#f472b6",
+    "L1": "#FF2020", "L2": "#FF8000", "L3": "#FFFF00",
+    "L4": "#80FF00", "L5": "#00FF00",
+    "R1": "#00FFFF", "R2": "#0040FF", "R3": "#8000FF",
+    "R4": "#FF00FF", "R5": "#FFFFFF",
 }
 KEY_NAMES = ["C", "D♭", "D", "E♭", "E", "F", "G♭", "G", "A♭", "A", "B♭", "B"]
 DEGREES = ["1", "#1", "2", "#2", "3", "4", "#4", "5", "#5", "6", "#6", "7"]
