@@ -11,7 +11,7 @@
   const STORAGE_KEY = 'piano-light-studio-calibration-v1';
   const PAGE_SIZE = 80;
   let config = readConfig();
-  const state = {project:null, noteById:new Map(), time:0, playing:false, mode:'timed', hand:'both', rate:1, mappedOnly:readMappedOnly(), fiveColors:readFiveColors(),
+  const state = {project:null, noteById:new Map(), time:0, playing:false, mode:'timed', hand:'both', rate:1, mappedOnly:readMappedOnly(), colorMode:readColorMode(),
     groupIndex:0, scorePage:0, activeSignature:'', activeNotes:[], lastClockPaint:0, anchorTime:0, anchorNow:0,
     loop:false, loopA:0, loopB:0, lookahead:config.lookahead, serialConnected:false, serialBusy:false,
     serialLastSent:0, serialLastFrame:'', serialForceClear:false, importing:false, loadRevision:0,
@@ -169,7 +169,8 @@
     catch (_) { toast('浏览器未允许保存设置；本次会话仍可继续练习。','error'); }
   }
   function colorFor(note) {
-    if(state.fiveColors&&fiveFingerColors[note.finger-1])return fiveFingerColors[note.finger-1];
+    if(state.colorMode==='red')return '#FF0000';
+    if(state.colorMode==='five'&&fiveFingerColors[note.finger-1])return fiveFingerColors[note.finger-1];
     const key = `${note.hand}${note.finger}`;
     const value = palette[key] || note.color || state.project?.palette?.[key];
     return /^#[0-9a-f]{6}$/i.test(value || '') ? value : palette[key] || '#E7BC78';
@@ -182,18 +183,29 @@
     const light=channels[0]*.2126+channels[1]*.7152+channels[2]*.0722;
     return `--finger-color:${color};--finger-ink:${light>.2?'#111925':'#FFFFFF'}`;
   }
-  function readFiveColors(){try{return localStorage.getItem('piano-light-five-colors-v1')==='true';}catch(_){return false;}}
-  function setFiveColors(enabled){
-    state.fiveColors=!!enabled;
-    try{localStorage.setItem('piano-light-five-colors-v1',String(state.fiveColors));}catch(_){toast('本次已切换颜色，但浏览器未能保存开关设置。','error');}
-    $('five-color-mode').checked=state.fiveColors;
+  function readColorMode(){
+    try{
+      const saved=localStorage.getItem('piano-light-color-mode-v1');
+      if(['ten','five','red'].includes(saved))return saved;
+      return localStorage.getItem('piano-light-five-colors-v1')==='true'?'five':'ten';
+    }catch(_){return 'ten';}
+  }
+  function setColorMode(mode){
+    if(!['ten','five','red'].includes(mode))return;
+    state.colorMode=mode;
+    try{
+      localStorage.setItem('piano-light-color-mode-v1',mode);
+      localStorage.setItem('piano-light-five-colors-v1',String(mode==='five'));
+    }catch(_){toast('本次已切换颜色，但浏览器未能保存配色设置。','error');}
+    $('finger-color-mode').value=state.colorMode;
     renderLegend();renderScore();updateActive(true);syncSerial();
   }
-  function installFiveColors(){
+  function setFiveColors(enabled){setColorMode(enabled?'five':'ten');}
+  function installFingerColors(){
     const controls=document.createElement('div');controls.style.cssText='padding:0 24px 14px';
-    controls.innerHTML='<label class="checkbox-label"><input type="checkbox" id="five-color-mode">五色指法：左右手同指同色</label><p class="setting-help" style="margin:6px 0 0">开启：拇指红、食指黄、中指绿、无名指蓝、小指白；关闭：使用新版十色指法配色。</p>';
-    $('finger-legend').before(controls);$('five-color-mode').checked=state.fiveColors;
-    $('five-color-mode').addEventListener('change',event=>setFiveColors(event.target.checked));
+    controls.innerHTML='<label style="display:block;max-width:340px">灯光配色<select id="finger-color-mode"><option value="ten">十色：区分左右手与手指</option><option value="five">五色：两手同指同色</option><option value="red">全红：不区分手指</option></select></label><p class="setting-help" style="margin:6px 0 0">全红：所有手指都只亮红色。五色：拇指红、食指黄、中指绿、无名指蓝、小指白。</p>';
+    $('finger-legend').before(controls);$('finger-color-mode').value=state.colorMode;
+    $('finger-color-mode').addEventListener('change',event=>setColorMode(event.target.value));
   }
   function pitchName(pitch) { return `${pitchClasses[((pitch % 12) + 12) % 12]}${Math.floor(pitch/12)-1}`; }
   function timeLabel(seconds, tenths = false) {
@@ -1052,7 +1064,7 @@
     finally{$('rebuild-button').disabled=false;}
   }
   function exportedProject() {
-    return {...state.project,calibration:{...config},ui_settings:{playback_rate:state.rate,hand_filter:state.hand,mode:state.mode,mapped_only:state.mappedOnly,five_colors:state.fiveColors,lookahead_seconds:state.lookahead,loop:state.loop?{start:state.loopA,end:state.loopB}:null}};
+    return {...state.project,calibration:{...config},ui_settings:{playback_rate:state.rate,hand_filter:state.hand,mode:state.mode,mapped_only:state.mappedOnly,color_mode:state.colorMode,five_colors:state.colorMode==='five',lookahead_seconds:state.lookahead,loop:state.loop?{start:state.loopA,end:state.loopB}:null}};
   }
   function download(data,filename,mime='application/json;charset=utf-8') {
     const blob=data instanceof Blob?data:new Blob([typeof data==='string'?data:JSON.stringify(data,null,2)],{type:mime});
@@ -1186,7 +1198,7 @@
     window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderKeyboard,150);});
   }
   async function initialize() {
-    bindEvents();installFiveColors();installAccompaniment();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
+    bindEvents();installFingerColors();installAccompaniment();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
     document.querySelectorAll('input[type=range]').forEach(rangeFill);
     requestAnimationFrame(animate);setInterval(syncSerial,80);
     const revision=state.loadRevision;
@@ -1202,7 +1214,7 @@
   window.PianoMappedOnlyNative=true;
   window.PianoProjectApi={current:()=>state.project,load:project=>loadProject(project)};
   window.PianoStartupReconnect={retry:reconnectDevices};
-  window.PianoFingerColors={set:setFiveColors,colorFor,get enabled(){return state.fiveColors;},palette:fiveFingerColors.slice()};
+  window.PianoFingerColors={set:setFiveColors,setMode:setColorMode,colorFor,get enabled(){return state.colorMode==='five';},get mode(){return state.colorMode;},palette:fiveFingerColors.slice()};
   window.addEventListener('piano-calibration-saved',()=>{
     config=readConfig();populateCalibration();renderKeyboard();renderScore();updateActive(true);
   });
