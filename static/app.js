@@ -515,6 +515,7 @@
     for(let index=low;index<notes.length;index++){
       const note=notes[index];
       if(note.start>time+state.lookahead+0.00001)break;
+      if(state.loop && (note.start<state.loopA || note.start>=state.loopB))continue;
       if(note.end>time+0.00001 && selected(note))result.push(note);
     }
     return result;
@@ -640,7 +641,8 @@
         state.time=state.loopA+(state.time-state.loopB)%Math.max(0.1,length);state.anchorTime=state.time;state.anchorNow=now;
       }
       if(state.time>=state.project.duration){state.time=state.project.duration;state.playing=false;state.serialForceClear=true;renderTransport();}
-      const index=indexAt(state.time+state.lookahead);
+      const previewTime=state.loop?Math.min(state.time+state.lookahead,state.loopB-0.00001):state.time+state.lookahead;
+      const index=indexAt(previewTime);
       if(index!==state.groupIndex){state.groupIndex=index;updateScoreCurrent();}
       updateClock();
     }
@@ -1285,5 +1287,104 @@
     window.PianoKeyAdaptation.ready=mode==='nearest'?setMode(mode).catch(showError):Promise.resolve(summary());
   }
   window.PianoKeyAdaptation={transform,setMode,get mode(){return mode;},get busy(){return busy;}};
+  install();
+})();
+
+/* 自动分段练习：loop-miner 自动分析，每次导入或换曲均可使用。 */
+(() => {
+  'use strict';
+  if(window.PianoPhrasePractice)return;
+  const core=id=>document.getElementById(id),$=id=>core(`phrases-${id}`);
+  let analysis={sections:[]},active=-1,occurrenceIndex=0,project=null,request=0,lastKey='',panel,pending=Promise.resolve();
+  const label=seconds=>`${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(Math.floor(seconds%60)).padStart(2,'0')}`;
+  async function analyze(raw){
+    const original=raw.key_adaptation?.original_project||raw;
+    const response=await fetch('/api/phrases',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:original})});
+    if(response.status===404)throw new Error('请重启本地后台以启用自动分段，再点“重试分析”。');
+    const result=await response.json();if(!response.ok)throw new Error(result.error||'自动分段未完成');
+    return result;
+  }
+  function render(){
+    const list=$('list');list.replaceChildren();
+    analysis.sections.forEach((section,index)=>{
+      const button=document.createElement('button');button.type='button';button.className='phrase-item';
+      button.dataset.phrase=index;button.setAttribute('aria-pressed',String(active===index));
+      const range=section.occurrences[0];
+      const title=document.createElement('strong');title.textContent=`第 ${index+1} 段${section.kind==='repeat'?` · 重复 ${section.occurrences.length} 次`:''}`;
+      const detail=document.createElement('small');detail.textContent=`${label(range.start)}–${label(range.end)} · ${section.groupCount} 个音组`;
+      button.append(title,detail);button.onclick=()=>select(index);list.append(button);
+    });
+    $('prev').disabled=active<=0;$('next').disabled=active>=analysis.sections.length-1||!analysis.sections.length;
+    $('occurrence').hidden=active<0||analysis.sections[active].occurrences.length<2;
+    $('whole').disabled=active<0;
+    $('summary').textContent=analysis.sections.length?`自动整理为 ${analysis.sections.length} 个练习段；${analysis.repeated} 种重复乐句共出现 ${analysis.occurrences} 次。${analysis.cached?'已读取分析结果。':''}`:'';
+    $('current').textContent=active<0?'选一段后点“开始练习”，熟练后点“下一段”。':`正在练第 ${active+1}/${analysis.sections.length} 段${analysis.sections[active].occurrences.length>1?`，第 ${occurrenceIndex+1} 处出现位置`:''}；本段循环，熟练后点“下一段”。`;
+    $('source').textContent=analysis.engine?`识别引擎：loop-miner · ${analysis.meter} 拍。${(analysis.warnings||[]).join('')}`:'';
+  }
+  function firstPlayable(range){
+    const hand=document.querySelector('#hand-filter .selected')?.dataset.hand||'both';
+    const mappedOnly=core('mapped-only').checked;
+    const config=JSON.parse(localStorage.getItem('piano-light-studio-calibration-v1')||'{}');
+    return project.notes.find(n=>n.start>=range.start-0.00001&&n.start<range.end-0.00001&&(hand==='both'||hand===n.hand)&&
+      (!mappedOnly||(config.mapping?.[n.pitch]||[]).some(i=>Number.isInteger(i)&&i>=0&&i<config.ledCount)));
+  }
+  function select(index,position=0){
+    if(window.PianoKeyAdaptation?.busy){$('current').textContent='正在适配琴键，完成后即可选择练习段。';return false;}
+    const section=analysis.sections[index];if(!section||!project)return false;
+    const range=section.occurrences[position];if(!range)return false;
+    const first=firstPlayable(range);
+    if(!first){$('current').textContent='这一段在当前手别和琴键筛选下没有可练音符，请调整筛选或选另一段。';return false;}
+    if(core('play-button').classList.contains('is-playing'))core('play-button').click();
+    active=index;occurrenceIndex=position;
+    // Enable first: the existing loop toggle reads its inputs. Restore exact
+    // values after its display rounding so a later read cannot shift a note.
+    if(core('loop-button').getAttribute('aria-pressed')!=='true')core('loop-button').click();
+    core('loop-start').value=String(range.start);core('loop-end').value=String(range.end);
+    core('loop-start').dispatchEvent(new Event('change',{bubbles:true}));
+    core('loop-start').value=String(range.start);core('loop-end').value=String(range.end);
+    core('timeline').value=String(first.start);core('timeline').dispatchEvent(new Event('input',{bubbles:true}));
+    render();return true;
+  }
+  function clear(){
+    active=-1;occurrenceIndex=0;
+    if(core('loop-button').getAttribute('aria-pressed')==='true')core('loop-button').click();
+    core('loop-start').value='0';core('loop-end').value=String(project?.duration||0);
+    core('loop-start').dispatchEvent(new Event('change',{bubbles:true}));render();
+  }
+  async function refresh(raw=null,force=false){
+    const current=raw||await window.PianoProjectApi.current();if(!current)return;
+    project=current;
+    const original=current.key_adaptation?.original_project||current;
+    const key=JSON.stringify([original.source_notes||original.notes,original.groups,original.bpm,original.transcription]);
+    if(!force&&key===lastKey)return pending;
+    lastKey=key;const ticket=++request;
+    if(active>=0&&core('loop-button').getAttribute('aria-pressed')==='true')core('loop-button').click();
+    active=-1;occurrenceIndex=0;analysis={sections:[]};render();
+    $('summary').textContent='正在自动分析这首曲子的循环片段，首次分析需要稍等片刻…';$('current').textContent='分析期间可以照常练习整首。';$('retry').hidden=true;
+    try{
+      pending=analyze(original);
+      const result=await pending;if(ticket!==request)return;
+      analysis=result;render();
+    }catch(error){
+      if(ticket!==request)return;
+      $('summary').textContent=error.message;$('retry').hidden=false;$('current').textContent='可以继续练习整首，稍后重试自动分段。';
+    }
+  }
+  function install(){
+    panel=document.createElement('section');panel.className='phrase-practice';panel.setAttribute('aria-label','自动分段练习');
+    panel.innerHTML='<details open><summary>自动分段练习</summary><p class="setting-help" id="phrases-summary" role="status"></p><button type="button" class="button secondary" id="phrases-retry" hidden>重试分析</button><div id="phrases-list" class="phrase-list"></div><div class="phrase-actions"><button type="button" class="button secondary" id="phrases-prev">上一段</button><button type="button" class="button primary" id="phrases-next">下一段</button><button type="button" class="button secondary" id="phrases-occurrence" hidden>换一处重复位置</button><button type="button" class="button subtle" id="phrases-whole">练整首</button></div><p class="setting-help" id="phrases-current" aria-live="polite"></p><p class="setting-help" id="phrases-source"></p></details>';
+    document.querySelector('.score-wrapper').before(panel);
+    const style=document.createElement('style');style.textContent='.phrase-practice{padding:4px 24px 18px}.phrase-practice summary{cursor:pointer;font-size:15px;font-weight:600;color:var(--accent)}.phrase-practice p{margin:8px 0}.phrase-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;max-height:180px;overflow:auto;padding:4px 2px}.phrase-item{display:block;text-align:left;border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--panel-deep);color:var(--text)}.phrase-item[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}.phrase-item strong,.phrase-item small{display:block}.phrase-item strong{font-size:13px}.phrase-item small{font-size:11px;color:var(--muted);margin-top:3px}.phrase-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}';document.head.append(style);
+    $('prev').onclick=()=>select(active-1);$('next').onclick=()=>select(active+1);
+    $('occurrence').onclick=()=>select(active,(occurrenceIndex+1)%analysis.sections[active].occurrences.length);
+    $('whole').onclick=clear;$('retry').onclick=()=>{window.PianoPhrasePractice.ready=refresh(null,true);};
+    window.addEventListener('piano-project-loaded',event=>{window.PianoPhrasePractice.ready=refresh(event.detail);});
+    document.addEventListener('click',event=>{
+      if(active<0)return;
+      if(event.target.closest('#loop-button')&&core('loop-button').getAttribute('aria-pressed')!=='true'){active=-1;render();}
+    });
+    window.PianoPhrasePractice.ready=refresh();
+  }
+  window.PianoPhrasePractice={engine:'loop-miner',analyze,refresh,select,clear,get sections(){return analysis.sections;},get active(){return active;},get analysis(){return analysis;},get element(){return panel;}};
   install();
 })();

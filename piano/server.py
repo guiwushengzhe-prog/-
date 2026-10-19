@@ -412,6 +412,9 @@ class Handler(BaseHTTPRequestHandler):
                     tonic=request.get("tonic", project.get("tonic", -1)),
                     hand_size=request.get("hand_size", project.get("hand_size", "M")), source=project.get("source"),
                     transcription=project.get("transcription")))
+            if path == "/api/phrases":
+                from .phrases import analyse
+                return self.send(200, analyse(request["project"], RUNTIME))
             if path == "/api/export/midi":
                 return self.send(200, write_midi(request), "audio/midi")
             if path == "/api/serial/connect":

@@ -2,7 +2,7 @@
 const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../static/app.js'),'utf8');
 const moduleSource=source.slice(source.indexOf('/* 邻键替代：')).replace('  install();','');
-const window={};vm.runInNewContext(moduleSource,{window});
+const window={PianoPhrasePractice:{}};vm.runInNewContext(moduleSource,{window});
 const transform=window.PianoKeyAdaptation.transform;
 const config=pitches=>({ledCount:60,mapping:Object.fromEntries(pitches.map((pitch,i)=>[pitch,[i]]))});
 function score(groups){
@@ -38,7 +38,7 @@ result=transform(adapted,config([60,64]));
 assert.equal(result.original,original,'再次适配仍从原谱开始');
 assert.deepEqual(Array.from(result.notes,n=>n.pitch),[60,64]);
 // 把适配结果交给正式判定和灯光函数，确认原音不能冒充替代音，松开也不会累计。
-const coreWindow={addEventListener(){},dispatchEvent(){},PianoLibrary:{},PianoKeyAdaptation:{}};
+const coreWindow={addEventListener(){},dispatchEvent(){},PianoLibrary:{},PianoKeyAdaptation:{},PianoPhrasePractice:{}};
 const core=source.replace('  initialize();',`
   renderMidiJudgement=()=>{};updateActive=()=>{};updateClock=()=>{};renderTransport=()=>{};
   updateScoreCurrent=()=>{if(state.midiJudgedGroup!==state.groupIndex)resetMidiJudgement();};

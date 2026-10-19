@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const assert=require('node:assert/strict');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../static/app.js'),'utf8');
-const window={addEventListener(){},dispatchEvent(){},PianoLibrary:{},PianoKeyAdaptation:{}};
+const window={addEventListener(){},dispatchEvent(){},PianoLibrary:{},PianoKeyAdaptation:{},PianoPhrasePractice:{}};
 const context={window,localStorage:{getItem(){return null;}},performance:{now:()=>0},
   document:{getElementById(){return {textContent:'',dataset:{}};}},
   CustomEvent:class{constructor(type,options){this.detail=options.detail;}},console};
@@ -11,7 +11,7 @@ const instrumented=source.replace('  initialize();',`
   renderMidiJudgement=()=>{};updateActive=()=>{};updateClock=()=>{};renderTransport=()=>{};
   updateScoreCurrent=()=>{if(state.midiJudgedGroup!==state.groupIndex)resetMidiJudgement();};
   syncSerial=()=>{};toast=()=>{};
-  window.test={state,config,handleMidiMessage,judgeMidiPitch,resetMidiJudgement,step,mappedOnlyStats,selected,midiExpectedPitches};`);
+  window.test={state,config,handleMidiMessage,judgeMidiPitch,resetMidiJudgement,step,mappedOnlyStats,selected,midiExpectedPitches,activeNotes};`);
 vm.runInNewContext(instrumented,context);
 const {state,handleMidiMessage:receive,resetMidiJudgement,step}=window.test;
 function setup(groups,hand='both'){
@@ -64,3 +64,7 @@ on(64);assert.equal(state.playing,false,'已对应的末组正常结束');
 state.mappedOnly=false;assert.equal(window.test.selected({pitch:62,hand:'R'}),true,'关闭选项恢复未对应琴键');
 state.mappedOnly=true;state.hand='L';assert.equal(window.test.mappedOnlyStats().black,1,'统计遵守当前手别');
 console.log('只练已对应琴键：黑白键次数与种类、无效映射、混合音组、跳组、关闭恢复、手别检查通过。');
+state.project={notes:[{pitch:60,start:0,end:2,hand:'R'},{pitch:62,start:1,end:2,hand:'R'},{pitch:64,start:2,end:3,hand:'R'}]};
+state.mode='timed';state.mappedOnly=false;state.hand='both';state.playing=true;state.time=1.8;
+state.loop=true;state.loopA=1;state.loopB=2;state.lookahead=.4;state.maxNoteDuration=2;
+assert.deepEqual(Array.from(window.test.activeNotes(),n=>n.pitch),[62],'片段循环不得预亮下一段或带入上一段琴键');

@@ -3,7 +3,7 @@ const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/st
 const source=fs.readFileSync(require('node:path').join(__dirname,'../static/app.js'),'utf8');
 const values=new Map();
 function create(){
-  const window={addEventListener(){},dispatchEvent(){},PianoLibrary:{},PianoKeyAdaptation:{}};
+  const window={addEventListener(){},dispatchEvent(){},PianoLibrary:{},PianoKeyAdaptation:{},PianoPhrasePractice:{}};
   const checkbox={checked:false};
   vm.runInNewContext(source.replace('  initialize();',`
     renderLegend=()=>{};renderScore=()=>{};updateActive=()=>{};syncSerial=()=>{};toast=()=>{};

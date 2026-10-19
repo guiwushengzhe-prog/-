@@ -172,6 +172,7 @@ def read_midi(data):
         raise ValueError("暂不支持各轨时间独立的 MIDI type 2。")
     tempo, seconds, beat = 500000, 0., 0.
     tempo_map = [{"time": 0.0, "beat": 0.0, "tempo": tempo}]
+    time_signature_map = []
     active = defaultdict(list)
     notes, excluded = [], 0
     track_names = [next((msg.name for msg in track if msg.type == "track_name"), "")
@@ -208,6 +209,13 @@ def read_midi(data):
                 tempo_map[-1] = point
             else:
                 tempo_map.append(point)
+        if msg.type == "time_signature":
+            point = {"time": seconds, "beat": beat, "numerator": msg.numerator,
+                     "denominator": msg.denominator}
+            if time_signature_map and time_signature_map[-1]["time"] == seconds:
+                time_signature_map[-1] = point
+            else:
+                time_signature_map.append(point)
         if getattr(msg, "channel", None) == 9:
             continue
         if msg.type == "note_on" and msg.velocity > 0:
@@ -246,6 +254,7 @@ def read_midi(data):
     initial_bpm = mido.tempo2bpm(tempo_map[0]["tempo"])
     return notes, min(300, max(20, initial_bpm)), {
         "excluded_nonpiano": excluded, "tempo_map": tempo_map,
+        "time_signature_map": time_signature_map,
         "source_initial_bpm": initial_bpm,
         "hand_labelled_notes": sum("source_hand" in n for n in notes),
     }
