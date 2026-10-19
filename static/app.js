@@ -6,11 +6,12 @@
   const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
   const palette = {L1:'#68D2E7',L2:'#62A8F5',L3:'#9D8AEF',L4:'#C88CE8',L5:'#E994B8',R1:'#FA7B63',R2:'#F4B95A',R3:'#D8DF65',R4:'#8FCB78',R5:'#4AD8AC'};
+  const fiveFingerColors = ['#FF0000','#FFFF00','#00FF00','#0080FF','#FF00FF'];
   const pitchClasses = ['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
   const STORAGE_KEY = 'piano-light-studio-calibration-v1';
   const PAGE_SIZE = 80;
   let config = readConfig();
-  const state = {project:null, noteById:new Map(), time:0, playing:false, mode:'timed', hand:'both', rate:1, mappedOnly:readMappedOnly(),
+  const state = {project:null, noteById:new Map(), time:0, playing:false, mode:'timed', hand:'both', rate:1, mappedOnly:readMappedOnly(), fiveColors:readFiveColors(),
     groupIndex:0, scorePage:0, activeSignature:'', activeNotes:[], lastClockPaint:0, anchorTime:0, anchorNow:0,
     loop:false, loopA:0, loopB:0, lookahead:config.lookahead, serialConnected:false, serialBusy:false,
     serialLastSent:0, serialLastFrame:'', serialForceClear:false, importing:false, loadRevision:0,
@@ -49,9 +50,23 @@
     catch (_) { toast('浏览器未允许保存设置；本次会话仍可继续练习。','error'); }
   }
   function colorFor(note) {
+    if(state.fiveColors&&fiveFingerColors[note.finger-1])return fiveFingerColors[note.finger-1];
     const key = `${note.hand}${note.finger}`;
     const value = note.color || state.project?.palette?.[key] || palette[key];
     return /^#[0-9a-f]{6}$/i.test(value || '') ? value : palette[key] || '#E7BC78';
+  }
+  function readFiveColors(){try{return localStorage.getItem('piano-light-five-colors-v1')==='true';}catch(_){return false;}}
+  function setFiveColors(enabled){
+    state.fiveColors=!!enabled;
+    try{localStorage.setItem('piano-light-five-colors-v1',String(state.fiveColors));}catch(_){toast('本次已切换颜色，但浏览器未能保存开关设置。','error');}
+    $('five-color-mode').checked=state.fiveColors;
+    renderLegend();renderScore();updateActive(true);syncSerial();
+  }
+  function installFiveColors(){
+    const controls=document.createElement('div');controls.style.cssText='padding:0 24px 14px';
+    controls.innerHTML='<label class="checkbox-label"><input type="checkbox" id="five-color-mode">五色指法：左右手同指同色</label><p class="setting-help" style="margin:6px 0 0">开启：拇指红、食指黄、中指绿、无名指蓝、小指紫红；关闭：恢复原十指配色。</p>';
+    $('finger-legend').before(controls);$('five-color-mode').checked=state.fiveColors;
+    $('five-color-mode').addEventListener('change',event=>setFiveColors(event.target.checked));
   }
   function pitchName(pitch) { return `${pitchClasses[((pitch % 12) + 12) % 12]}${Math.floor(pitch/12)-1}`; }
   function timeLabel(seconds, tenths = false) {
@@ -850,7 +865,7 @@
     finally{$('rebuild-button').disabled=false;}
   }
   function exportedProject() {
-    return {...state.project,calibration:{...config},ui_settings:{playback_rate:state.rate,hand_filter:state.hand,mode:state.mode,mapped_only:state.mappedOnly,lookahead_seconds:state.lookahead,loop:state.loop?{start:state.loopA,end:state.loopB}:null}};
+    return {...state.project,calibration:{...config},ui_settings:{playback_rate:state.rate,hand_filter:state.hand,mode:state.mode,mapped_only:state.mappedOnly,five_colors:state.fiveColors,lookahead_seconds:state.lookahead,loop:state.loop?{start:state.loopA,end:state.loopB}:null}};
   }
   function download(data,filename,mime='application/json;charset=utf-8') {
     const blob=data instanceof Blob?data:new Blob([typeof data==='string'?data:JSON.stringify(data,null,2)],{type:mime});
@@ -979,7 +994,7 @@
     window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderKeyboard,150);});
   }
   async function initialize() {
-    bindEvents();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
+    bindEvents();installFiveColors();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
     document.querySelectorAll('input[type=range]').forEach(rangeFill);
     requestAnimationFrame(animate);setInterval(syncSerial,80);
     const revision=state.loadRevision;
@@ -993,6 +1008,7 @@
   window.PianoSimultaneousNative=true;
   window.PianoMappedOnlyNative=true;
   window.PianoProjectApi={current:()=>state.project,load:project=>loadProject(project)};
+  window.PianoFingerColors={set:setFiveColors,colorFor,get enabled(){return state.fiveColors;},palette:fiveFingerColors.slice()};
   window.addEventListener('piano-calibration-saved',()=>{
     config=readConfig();populateCalibration();renderKeyboard();renderScore();updateActive(true);
   });
