@@ -92,42 +92,68 @@
     };
   }
 
-  async function connect({includeAllDevices = false, onMessage, onDisconnected}) {
-    if (!navigator.bluetooth?.requestDevice) {
+  const lastDeviceKey = 'piano-light-last-bluetooth-v1';
+  async function previousDevice() {
+    if (typeof navigator.bluetooth?.getDevices !== 'function') {
+      throw new Error('浏览器暂不支持自动找回蓝牙设备，请点击“搜索并连接蓝牙钢琴”。');
+    }
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(lastDeviceKey) || 'null'); } catch (_) {}
+    const devices = await navigator.bluetooth.getDevices();
+    const device = saved?.id ? devices.find(item => item.id === saved.id) : devices.length === 1 ? devices[0] : null;
+    if (!device) throw new Error('未找到上次授权的蓝牙钢琴，请点击“搜索并连接蓝牙钢琴”。');
+    return device;
+  }
+
+  async function connect({includeAllDevices = false, automatic = false, onMessage, onDisconnected}) {
+    if (!navigator.bluetooth || (!automatic && !navigator.bluetooth.requestDevice)) {
       throw new Error('当前浏览器不支持网页蓝牙，请使用新版 Chrome 或 Edge。');
     }
-    const device = await navigator.bluetooth.requestDevice(includeAllDevices
+    const device = automatic ? await previousDevice() : await navigator.bluetooth.requestDevice(includeAllDevices
       ? {acceptAllDevices:true, optionalServices:[serviceUuid]}
       : {filters:[{services:[serviceUuid]}], optionalServices:[serviceUuid]});
     const decoder = createDecoder(onMessage);
-    let disconnected = false;
+    let disconnected = false, characteristic = null, timer;
+    const onValue = event => {
+      const value = event.target.value;
+      decoder(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    };
+    const disconnect = () => {
+      disconnected = true;
+      device.removeEventListener('gattserverdisconnected', onLost);
+      characteristic?.removeEventListener('characteristicvaluechanged', onValue);
+      if (device.gatt.connected) device.gatt.disconnect();
+    };
+    const checkActive = () => {
+      if (disconnected) { disconnect(); throw new Error('蓝牙连接已取消，请重新连接。'); }
+    };
     const onLost = () => {
       if (disconnected) return;
-      disconnected = true;
+      disconnect();
       onDisconnected?.(device);
     };
     device.addEventListener('gattserverdisconnected', onLost);
     try {
-      const server = await device.gatt.connect();
-      const service = await server.getPrimaryService(serviceUuid);
-      const characteristic = await service.getCharacteristic(characteristicUuid);
-      characteristic.addEventListener('characteristicvaluechanged', event => {
-        const value = event.target.value;
-        decoder(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
-      });
-      await characteristic.startNotifications();
+      await Promise.race([(async () => {
+        const server = await device.gatt.connect();checkActive();
+        const service = await server.getPrimaryService(serviceUuid);checkActive();
+        characteristic = await service.getCharacteristic(characteristicUuid);checkActive();
+        characteristic.addEventListener('characteristicvaluechanged', onValue);
+        await characteristic.startNotifications();checkActive();
+      })(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('蓝牙连接超时，请确认钢琴已开机，再点击连接。')), 12000);
+      })]);
+      try { localStorage.setItem(lastDeviceKey, JSON.stringify({id:device.id, name:device.name})); } catch (_) {}
       return {
+        id: device.id,
         name: device.name || '蓝牙 MIDI 钢琴',
-        disconnect() {
-          device.removeEventListener('gattserverdisconnected', onLost);
-          if (device.gatt.connected) device.gatt.disconnect();
-          disconnected = true;
-        }
+        get connected() { return !disconnected && device.gatt.connected; },
+        disconnect
       };
     } catch (error) {
-      if (device.gatt.connected) device.gatt.disconnect();
+      disconnect();
       throw error;
-    }
+    } finally { clearTimeout(timer); }
   }
 
   window.BleMidi = {connect, createDecoder};
