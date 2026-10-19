@@ -105,6 +105,7 @@
       }
     }
     description(mode){
+      if(mode==='correct')return '弹对推进不播放伴奏，按灯光提示弹奏即可。定速跟练时可以开启连续伴奏。';
       if(this.error&&this.enabled)return this.error;
       const name=this.source?'原曲伴奏':'原谱合成琴声伴奏';
       return `${name}${this.enabled?'已开启':'已关闭'}。${mode==='timed'?'随练习同步播放、变速和循环。':'每次只播放当前音组对应片段，段尾暂停，进入下一组后继续。'}`;
@@ -112,12 +113,16 @@
   }
   function renderAccompaniment(){
     if(!accompaniment)return;
-    $('accompaniment-enabled').checked=accompaniment.enabled;
+    const available=state.mode!=='correct';
+    $('accompaniment-enabled').checked=available&&accompaniment.enabled;
+    $('accompaniment-enabled').disabled=!available;
+    $('accompaniment-volume').disabled=!available;
     $('accompaniment-volume').value=String(Math.round(accompaniment.volume*100));
     $('accompaniment-volume-value').textContent=`${Math.round(accompaniment.volume*100)}%`;
     $('accompaniment-status').textContent=accompaniment.description(state.mode);
   }
   function startAccompaniment(){
+    if(state.mode==='correct'){accompaniment?.stop();return;}
     if(!accompaniment||!state.project||!state.playing||state.countdown)return;
     const timed=state.mode==='timed';let end=state.loop?state.loopB:state.project.duration;
     if(!timed){const next=state.project.groups.find((group,index)=>index>state.groupIndex&&groupHasSelected(index)&&group.time<end);if(next)end=next.time;}
@@ -130,6 +135,7 @@
     const media=document.createElement('audio');media.id='accompaniment-audio';media.hidden=true;controls.append(media);
     accompaniment=new PracticeAccompaniment(media,renderAccompaniment);renderAccompaniment();
     $('accompaniment-enabled').addEventListener('change',event=>{
+      if(state.mode==='correct'){accompaniment.stop();renderAccompaniment();return;}
       if(state.playing&&state.mode==='timed'){state.time=currentTimedPosition();state.anchorTime=state.time;state.anchorNow=performance.now();}
       accompaniment.enabled=event.target.checked;accompaniment.save();accompaniment.stop();accompaniment.prepare();startAccompaniment();renderAccompaniment();
     });
@@ -351,7 +357,7 @@
   function judgeMidiPitch(pitch) {
     const pressed=`${pitchName(pitch)}（音符编号 ${pitch}）`;
     if(window.PianoLightCalibration?.active)return;
-    if(state.mode==='correct'&&!state.playing){setMidiFeedback(`检测到 ${pressed}；点击「开始练习」后，弹对当前音组自动推进。`,'help');return;}
+    if(state.mode==='correct'&&!state.playing){setMidiFeedback(`检测到 ${pressed}；点击「3 秒后开始」或「立即开始」后，弹对当前音组自动推进。`,'help');return;}
     const expected=midiExpectedPitches();
     if(!expected.length) { setMidiFeedback(`检测到 ${pressed}；当前音组在所选手别下没有音符，请调整左手／右手筛选。`,'help');return; }
     const remaining=matchHeldMidiPitches(expected);
@@ -687,10 +693,11 @@
   function renderTransport() {
     renderAccompaniment();
     const preparing=state.countdown>0;
-    $('play-label').textContent=preparing?`${state.countdown} 秒后开始 · 点此取消`:state.playing?'暂停练习':state.mode==='manual'?'点亮这一组':'开始练习';
+    $('play-label').textContent=preparing?`${state.countdown} 秒后开始 · 点此取消`:state.playing?'暂停练习':'3 秒后开始';
     $('play-icon').querySelector('use').setAttribute('href',state.playing?'#i-pause':'#i-play');
     $('play-button').classList.toggle('is-playing',state.playing);
-    $('play-button').setAttribute('aria-label',preparing?'取消开始倒计时':state.playing?'暂停练习':'开始练习');
+    $('play-button').setAttribute('aria-label',preparing?'取消开始倒计时':state.playing?'暂停练习':'3 秒后开始');
+    if($('start-now'))$('start-now').hidden=state.playing;
     $('play-label').setAttribute('aria-live','polite');
     $('mode-hint').textContent=state.mode==='correct'?'当前音组持续亮灯，要求的琴键必须同时按住才进入下一组；松开即取消，逐个弹不累计。空格暂停／继续，需要连接钢琴。':state.mode==='manual'?'当前音组持续亮灯，按 → 或「下一组」推进；空格熄灯／继续。普通钢琴无需接入电子琴键。':`灯光提前 ${state.lookahead.toFixed(2)} 秒提示。空格播放／暂停，← → 跳转音组；普通钢琴按设定速度跟练。`;
     $('speed-range').disabled=state.mode!=='timed';
@@ -732,7 +739,7 @@
       resetMidiJudgement();
     }
     if(!ready){
-      accompaniment?.prepare();
+      if(state.mode!=='correct')accompaniment?.prepare();
       state.countdown=3;clearTest();state.serialForceClear=true;syncSerial();renderTransport();
       const until=performance.now()+3000;
       const tick=()=>{
@@ -758,6 +765,10 @@
     }
     state.playing=true;state.serialForceClear=false;renderTransport();updateScoreCurrent();updateActive(true);
     startAccompaniment();
+  }
+  function startImmediately(){
+    if(state.countdown)pause();
+    play(true);
   }
   function seek(time, groupIndex=null) {
     pause();
@@ -1116,6 +1127,7 @@
       if(input)connectMidiInput(input);
     });
     $('play-button').addEventListener('click',()=>play());$('prev-button').addEventListener('click',()=>step(-1));$('next-button').addEventListener('click',()=>step(1));
+    $('start-now').addEventListener('click',startImmediately);
     $('timeline').addEventListener('input',event=>seek(Number(event.target.value)));
     $('speed-range').addEventListener('input',event=>{
       if(state.playing && state.mode==='timed'){state.time=currentTimedPosition();state.anchorTime=state.time;state.anchorNow=performance.now();}
@@ -1499,7 +1511,7 @@
     $('occurrence').hidden=active<0||analysis.sections[active].occurrences.length<2;
     $('whole').disabled=active<0;
     $('summary').textContent=analysis.sections.length?`自动整理为 ${analysis.sections.length} 个练习段；${analysis.repeated} 种重复乐句共出现 ${analysis.occurrences} 次。${analysis.cached?'已读取分析结果。':''}`:'';
-    $('current').textContent=active<0?'选一段后点“开始练习”，熟练后点“下一段”。':`正在练第 ${active+1}/${analysis.sections.length} 段${analysis.sections[active].occurrences.length>1?`，第 ${occurrenceIndex+1} 处出现位置`:''}；本段循环，熟练后点“下一段”。`;
+    $('current').textContent=active<0?'选一段后点“3 秒后开始”或“立即开始”，熟练后点“下一段”。':`正在练第 ${active+1}/${analysis.sections.length} 段${analysis.sections[active].occurrences.length>1?`，第 ${occurrenceIndex+1} 处出现位置`:''}；本段循环，熟练后点“下一段”。`;
     $('source').textContent=analysis.engine?`识别引擎：loop-miner · ${analysis.meter} 拍。${(analysis.warnings||[]).join('')}`:'';
   }
   function firstPlayable(range){

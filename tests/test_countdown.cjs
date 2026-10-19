@@ -5,12 +5,12 @@ const window={addEventListener(){},dispatchEvent(){},PianoLibrary:{},PianoKeyAda
 vm.runInNewContext(source.replace('  initialize();',`
   renderTransport=()=>{};updateScoreCurrent=()=>{};updateActive=()=>{};updateClock=()=>{};syncSerial=()=>{};renderMidiJudgement=()=>{};
   toast=message=>messages.push(message);
-  window.test={state,play,pause,seek,handleMidiMessage};`),{
+  window.test={state,play,pause,seek,handleMidiMessage,startImmediately};`),{
   window,document:{hidden:false},localStorage:{getItem(){return null;}},performance:{now:()=>now},messages,
   setTimeout(callback,delay){const id=++nextTimer;timers.set(id,{callback,at:now+delay});return id;},
   clearTimeout:id=>timers.delete(id),CustomEvent:class{constructor(type,options){this.detail=options.detail;}}
 });
-const {state,play,pause,seek,handleMidiMessage}=window.test;
+const {state,play,pause,seek,handleMidiMessage,startImmediately}=window.test;
 state.project={duration:5,notes:[{id:'a',pitch:60,hand:'R',start:0,end:1}],groups:[{time:0,note_ids:['a']}]};
 state.noteById=new Map(state.project.notes.map(n=>[n.id,n]));
 function advance(milliseconds){
@@ -30,4 +30,7 @@ state.midiBleConnection={};state.groupIndex=0;state.time=0;play();
 handleMidiMessage({data:[0x90,60,90]});assert.equal(state.groupIndex,0);assert.equal(state.playing,false,'倒计时按键不推进');
 pause();advance(4000);assert.equal(state.playing,false);
 state.mode='manual';play();advance(3000);assert.equal(state.playing,true,'手动模式也有准备时间');
-console.log('开始倒计时：3/2/1、时间轴等待、重复点击取消、跳转取消、未连接提示和准备期间不推进检查通过。');
+pause();startImmediately();assert.equal(state.playing,true,'立即开始不等待');assert.equal(state.countdown,0);assert.equal(timers.size,0);
+pause();play();advance(1000);startImmediately();assert.equal(state.playing,true,'倒计时期间可以改为立即开始');assert.equal(timers.size,0);
+pause();advance(4000);assert.equal(state.playing,false,'切换立即开始后不能残留旧倒计时');
+console.log('开始方式：3/2/1、立即开始、倒计时中改立即开始、取消、跳转、未连接提示与准备期间不推进检查通过。');
