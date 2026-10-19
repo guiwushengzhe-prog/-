@@ -58,6 +58,25 @@ class LibraryTests(unittest.TestCase):
             http.server_close()
             thread.join(timeout=5)
 
+    def test_original_audio_remains_available_after_restart(self):
+        project_id = "d" * 32
+        self.save(project_id, self.project)
+        data = b"RIFF-original-upload"
+        (self.runtime / project_id / "input.wav").write_bytes(data)
+        project = server.load_library_project(project_id)
+        self.assertEqual(project["source"]["audio_url"], f"/api/jobs/{project_id}/source-audio")
+        http = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        thread = threading.Thread(target=http.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with urlopen(f"http://127.0.0.1:{http.server_port}/api/jobs/{project_id}/source-audio", timeout=5) as response:
+                self.assertEqual(response.headers.get_content_type(), "audio/wav")
+                self.assertEqual(response.read(), data)
+        finally:
+            http.shutdown()
+            http.server_close()
+            thread.join(timeout=5)
+
 
 if __name__ == "__main__":
     unittest.main()

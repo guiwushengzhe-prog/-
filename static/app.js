@@ -24,7 +24,117 @@
   let resizeTimer;
   let countdownTimer = null;
   let startupSerialCancelled = false;
+  let accompaniment = null;
   const LAST_SERIAL_KEY = 'piano-light-last-serial-v1';
+
+  class PracticeAccompaniment {
+    constructor(media,report){
+      this.media=media;this.report=report;this.voices=new Set();this.context=null;this.master=null;
+      this.enabled=false;this.volume=.35;this.live=false;this.generation=0;this.timer=null;this.source=null;this.notes=[];this.error='';
+      try{const saved=JSON.parse(localStorage.getItem('piano-light-accompaniment-v1')||'{}');this.enabled=saved.enabled===true;this.volume=clamp(finite(saved.volume,.35),0,1);}catch(_){}
+      media.preload='auto';media.volume=this.volume;
+      media.addEventListener('error',()=>{if(this.enabled&&this.source)this.fail('原曲音频暂时无法播放，请重新载入曲目后再试。');});
+    }
+    save(){try{localStorage.setItem('piano-light-accompaniment-v1',JSON.stringify({enabled:this.enabled,volume:this.volume}));}catch(_) {}}
+    load(raw){
+      this.stop();this.error='';const original=raw.key_adaptation?.original_project||raw;
+      this.notes=(original.source_notes||original.notes||[]).slice().sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
+      this.source=null;
+      try{const path=original.source?.audio_url||original.source?.converted_audio_url;
+        if(path){const url=new URL(path,location.href);if(url.origin===location.origin&&/^\/api\/jobs\/[a-f0-9]{32}\/(audio\.mp3|source-audio)$/.test(url.pathname))this.source=url.href;}
+      }catch(_){}
+      if(this.source)this.media.src=this.source;else this.media.removeAttribute('src');
+      this.media.load();this.report();
+    }
+    prepare(){
+      if(!this.enabled||this.source)return;
+      try{
+        if(!this.context){const Context=window.AudioContext||window.webkitAudioContext;if(!Context)throw new Error('当前浏览器无法播放合成伴奏。');
+          this.context=new Context();this.master=this.context.createGain();this.master.gain.value=this.volume;this.master.connect(this.context.destination);}
+        this.context.resume().catch(()=>this.fail('浏览器尚未允许伴奏，请再次点击开始练习。'));
+      }catch(error){this.fail(error.message);}
+    }
+    stop(){
+      this.generation++;if(this.timer!==null)clearTimeout(this.timer);this.timer=null;this.live=false;
+      this.media.pause();for(const voice of this.voices){try{voice.stop();}catch(_) {}}this.voices.clear();
+    }
+    fail(message){this.stop();this.error=message;this.report();}
+    setVolume(value){this.volume=clamp(value,0,1);this.media.volume=this.volume;if(this.master)this.master.gain.value=this.volume;this.save();}
+    start(time,end,rate,timed){
+      this.stop();if(!this.enabled||end<=Math.max(0,time))return;
+      this.error='';this.live=true;this.startTime=Math.max(0,time);this.end=end;this.rate=rate;this.timed=timed;
+      const token=this.generation,delay=Math.max(0,-time)/rate;
+      this.due=performance.now()+delay*1000;
+      if(this.source){
+        const begin=()=>{
+          if(token!==this.generation)return;
+          try{this.media.currentTime=this.startTime;this.media.playbackRate=rate;
+            this.media.play().catch(error=>{if(token===this.generation)this.fail(error.name==='NotAllowedError'?'浏览器尚未允许伴奏，请再次点击开始练习。':'原曲音频播放失败，请重新载入曲目。');});
+          }catch(error){this.fail('原曲音频尚未就绪，请稍后重新开始。');}
+        };
+        if(delay)this.timer=setTimeout(begin,delay*1000);else begin();
+      }else{
+        this.prepare();if(!this.context||this.error)return;
+        this.anchor=this.context.currentTime+delay;
+        this.cursor=0;while(this.cursor<this.notes.length&&this.notes[this.cursor].end<=this.startTime)this.cursor++;
+      }
+      this.report();this.tick();
+    }
+    position(){
+      if(!this.enabled||!this.live||!this.source||!this.timed||this.media.ended)return null;
+      if(performance.now()<this.due)return -(this.due-performance.now())/1000*this.rate;
+      return this.media.currentTime;
+    }
+    tick(){
+      if(!this.live)return;
+      const position=this.source?this.media.currentTime:this.startTime+Math.max(0,this.context.currentTime-this.anchor)*this.rate;
+      if(!this.timed&&position>=this.end){this.stop();this.report();return;}
+      if(this.source)return;
+      const now=this.context.currentTime;
+      while(this.cursor<this.notes.length&&this.notes[this.cursor].start<Math.min(this.end,position+.15*this.rate)){
+        const note=this.notes[this.cursor++];if(note.end<=position)continue;
+        const start=Math.max(now,this.anchor+(note.start-this.startTime)/this.rate),end=this.anchor+(Math.min(note.end,this.end)-this.startTime)/this.rate;
+        if(end<=start)continue;
+        const oscillator=this.context.createOscillator(),gain=this.context.createGain();
+        oscillator.type='triangle';oscillator.frequency.value=440*2**((note.pitch-69)/12);
+        gain.gain.setValueAtTime(0,start);gain.gain.linearRampToValueAtTime(.09*(note.velocity||80)/127,start+Math.min(.008,(end-start)/2));
+        gain.gain.exponentialRampToValueAtTime(.0001,end);
+        oscillator.connect(gain);gain.connect(this.master);this.voices.add(oscillator);
+        oscillator.onended=()=>{this.voices.delete(oscillator);oscillator.disconnect();gain.disconnect();};
+        oscillator.start(start);oscillator.stop(end);
+      }
+    }
+    description(mode){
+      if(this.error&&this.enabled)return this.error;
+      const name=this.source?'原曲伴奏':'原谱合成琴声伴奏';
+      return `${name}${this.enabled?'已开启':'已关闭'}。${mode==='timed'?'随练习同步播放、变速和循环。':'每次只播放当前音组对应片段，段尾暂停，进入下一组后继续。'}`;
+    }
+  }
+  function renderAccompaniment(){
+    if(!accompaniment)return;
+    $('accompaniment-enabled').checked=accompaniment.enabled;
+    $('accompaniment-volume').value=String(Math.round(accompaniment.volume*100));
+    $('accompaniment-volume-value').textContent=`${Math.round(accompaniment.volume*100)}%`;
+    $('accompaniment-status').textContent=accompaniment.description(state.mode);
+  }
+  function startAccompaniment(){
+    if(!accompaniment||!state.project||!state.playing||state.countdown)return;
+    const timed=state.mode==='timed';let end=state.loop?state.loopB:state.project.duration;
+    if(!timed){const next=state.project.groups.find((group,index)=>index>state.groupIndex&&groupHasSelected(index)&&group.time<end);if(next)end=next.time;}
+    accompaniment.start(state.time,end,timed?state.rate:1,timed);
+  }
+  function installAccompaniment(){
+    const controls=document.createElement('div');controls.className='accompaniment-controls';controls.style.cssText='padding:0 24px 14px';
+    controls.innerHTML='<label class="checkbox-label"><input type="checkbox" id="accompaniment-enabled">播放歌曲作为伴奏</label><label class="brightness-control" style="max-width:320px;margin-top:8px">伴奏音量 <input type="range" id="accompaniment-volume" min="0" max="100" value="35"><strong id="accompaniment-volume-value">35%</strong></label><p class="setting-help" id="accompaniment-status" role="status" style="margin:6px 0 0"></p>';
+    document.querySelector('.practice-toolbar').after(controls);
+    const media=document.createElement('audio');media.id='accompaniment-audio';media.hidden=true;controls.append(media);
+    accompaniment=new PracticeAccompaniment(media,renderAccompaniment);renderAccompaniment();
+    $('accompaniment-enabled').addEventListener('change',event=>{
+      if(state.playing&&state.mode==='timed'){state.time=currentTimedPosition();state.anchorTime=state.time;state.anchorNow=performance.now();}
+      accompaniment.enabled=event.target.checked;accompaniment.save();accompaniment.stop();accompaniment.prepare();startAccompaniment();renderAccompaniment();
+    });
+    $('accompaniment-volume').addEventListener('input',event=>{accompaniment.setVolume(Number(event.target.value)/100);rangeFill(event.target);renderAccompaniment();});
+  }
 
   function makeMapping(first, count, leds) {
     const mapping = {};
@@ -138,6 +248,7 @@
     pause();
     state.loadRevision++;
     state.project = project;
+    accompaniment?.load(project);
     state.noteById = new Map(project.notes.map(note => [String(note.id),note]));
     state.maxNoteDuration = project.notes.reduce((max,note) => Math.max(max,note.end-note.start),0);
     state.time=0;state.groupIndex=0;state.scorePage=0;state.loopA=0;state.loopB=project.duration;
@@ -574,6 +685,7 @@
     $('live-status').textContent=state.testUntil>performance.now()?'灯珠测试':state.playing?(state.mode==='correct'?'等待弹对':state.mode==='manual'?'等待你推进':'跟灯弹奏'):state.time>0?'已暂停':'准备就绪';
   }
   function renderTransport() {
+    renderAccompaniment();
     const preparing=state.countdown>0;
     $('play-label').textContent=preparing?`${state.countdown} 秒后开始 · 点此取消`:state.playing?'暂停练习':state.mode==='manual'?'点亮这一组':'开始练习';
     $('play-icon').querySelector('use').setAttribute('href',state.playing?'#i-pause':'#i-play');
@@ -596,6 +708,7 @@
     $('timeline').value=String(Math.max(0,state.time));rangeFill($('timeline'));
   }
   function currentTimedPosition(now=performance.now()) {
+    const audioPosition=accompaniment?.position();if(Number.isFinite(audioPosition))return audioPosition;
     return state.anchorTime+(now-state.anchorNow)/1000*state.rate;
   }
   function clearTest(){state.testUntil=0;state.testNotes=[];state.testPixels=null;}
@@ -604,6 +717,7 @@
     countdownTimer=null;state.countdown=0;
     if(state.playing && state.mode==='timed')state.time=currentTimedPosition();
     state.playing=false;clearTest();
+    accompaniment?.stop();
     state.serialForceClear=true;
     if(state.project)state.time=clamp(state.time,0,state.project.duration);
     updateActive(true);renderTransport();updateClock(true);syncSerial();
@@ -618,6 +732,7 @@
       resetMidiJudgement();
     }
     if(!ready){
+      accompaniment?.prepare();
       state.countdown=3;clearTest();state.serialForceClear=true;syncSerial();renderTransport();
       const until=performance.now()+3000;
       const tick=()=>{
@@ -642,6 +757,7 @@
       state.groupIndex=next;state.time=state.project.groups[next].time;
     }
     state.playing=true;state.serialForceClear=false;renderTransport();updateScoreCurrent();updateActive(true);
+    startAccompaniment();
   }
   function seek(time, groupIndex=null) {
     pause();
@@ -662,6 +778,7 @@
     }
     clearTest();state.groupIndex=next;state.time=groups[next].time;state.playing=true;state.serialForceClear=false;
     if(state.mode==='correct')resetMidiJudgement();
+    startAccompaniment();
     updateScoreCurrent();updateClock(true);updateActive(true);renderTransport();
   }
   function animate(now) {
@@ -670,14 +787,16 @@
       if(state.loop && state.time>=state.loopB){
         const length=state.loopB-state.loopA;
         state.time=state.loopA+(state.time-state.loopB)%Math.max(0.1,length);state.anchorTime=state.time;state.anchorNow=now;
+        startAccompaniment();
       }
-      if(state.time>=state.project.duration){state.time=state.project.duration;state.playing=false;state.serialForceClear=true;renderTransport();}
+      if(state.time>=state.project.duration){state.time=state.project.duration;state.playing=false;state.serialForceClear=true;accompaniment?.stop();renderTransport();}
       const previewTime=state.loop?Math.min(state.time+state.lookahead,state.loopB-0.00001):state.time+state.lookahead;
       const index=indexAt(previewTime);
       if(index!==state.groupIndex){state.groupIndex=index;updateScoreCurrent();}
       updateClock();
     }
     if(state.testUntil && state.testUntil<=now)clearTest();
+    accompaniment?.tick();
     updateActive();
     requestAnimationFrame(animate);
   }
@@ -960,6 +1079,7 @@
     let end=clamp(finite($('loop-end').value,duration),start+0.1,duration);
     if(end<=start){start=0;end=duration;}
     state.loopA=start;state.loopB=end;$('loop-start').value=String(Number(start.toFixed(1)));$('loop-end').value=String(Number(end.toFixed(1)));
+    startAccompaniment();
   }
   function fallbackDemo() {
     const bpm=90,beat=60/bpm,notes=[],groups=[];
@@ -1000,6 +1120,7 @@
     $('speed-range').addEventListener('input',event=>{
       if(state.playing && state.mode==='timed'){state.time=currentTimedPosition();state.anchorTime=state.time;state.anchorNow=performance.now();}
       state.rate=Number(event.target.value)/100;$('speed-label').textContent=`${state.rate.toFixed(2)}×`;rangeFill(event.target);
+      startAccompaniment();
     });
     $('speed-reset').addEventListener('click',()=>{$('speed-range').value='100';$('speed-range').dispatchEvent(new Event('input'));});
     $('mode-control').addEventListener('click',event=>{
@@ -1037,6 +1158,7 @@
     });
     document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
     window.addEventListener('pagehide',()=>{
+      accompaniment?.stop();
       if(!state.serialConnected)return;
       const body=new Blob([JSON.stringify({pixels:[],brightness:config.brightness})],{type:'application/json'});
       navigator.sendBeacon('/api/serial/frame',body);
@@ -1044,7 +1166,7 @@
     window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderKeyboard,150);});
   }
   async function initialize() {
-    bindEvents();installFiveColors();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
+    bindEvents();installFiveColors();installAccompaniment();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
     document.querySelectorAll('input[type=range]').forEach(rangeFill);
     requestAnimationFrame(animate);setInterval(syncSerial,80);
     const revision=state.loadRevision;
@@ -1103,7 +1225,16 @@
     project=project?.key_adaptation?.original_project||project;
     if(!project?.notes?.length||!project.groups?.length||project.source?.kind==='demo'||/demo|示例|built-in/i.test(project.transcription?.engine||''))return;
     const id=projectKey(project);
-    if(onlyIfAbsent&&await storage('get',id))return;
+    if(onlyIfAbsent){
+      const existing=await storage('get',id);
+      if(existing){
+        if(project.source?.audio_url&&!existing.project.source?.audio_url&&
+          JSON.stringify(project.source_notes||project.notes)===JSON.stringify(existing.project.source_notes||existing.project.notes)){
+          existing.project.source={...existing.project.source,audio_url:project.source.audio_url};await storage('put',existing);
+        }
+        return;
+      }
+    }
     // 琴谱独立于本机灯珠校准和当前练习进度。
     const {calibration,ui_settings,...score}=project;
     await storage('put',{id,project:score,savedAt:Date.now()});

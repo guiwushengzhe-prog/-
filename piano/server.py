@@ -137,7 +137,18 @@ def load_library_project(project_id):
     project = json.loads(text)
     if not isinstance(project, dict) or not project.get("notes") or not project.get("groups"):
         raise ValueError("曲谱尚未转换完成。")
+    if project.get("source", {}).get("kind") == "audio" and source_audio_path(RUNTIME / project_id):
+        project["source"]["audio_url"] = f"/api/jobs/{project_id}/source-audio"
     return project
+
+
+def source_audio_path(directory):
+    for suffix, mime in ((".mp3", "audio/mpeg"), (".wav", "audio/wav"),
+                         (".flac", "audio/flac"), (".ogg", "audio/ogg")):
+        path = directory / ("input" + suffix)
+        if path.is_file():
+            return path, mime
+    return None
 
 
 def library_entries():
@@ -206,6 +217,8 @@ def process_import(job_id, path, filename, options):
                   "filename": filename}
         if suffix == ".ncm" and (path.parent / "converted.mp3").is_file():
             source["converted_audio_url"] = f"/api/jobs/{job_id}/audio.mp3"
+        elif suffix not in (".mid", ".midi", ".ncm"):
+            source["audio_url"] = f"/api/jobs/{job_id}/source-audio"
         project = build_project(notes, title=Path(filename).stem, bpm=bpm, tonic=tonic,
                                 hand_size=options.get("hand_size", "M"),
                                 source=source, transcription=transcription)
@@ -297,6 +310,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not audio_path.is_file():
                     return self.send(404, {"error": "转换后的 MP3 尚未生成。"})
                 return self.send(200, audio_path.read_bytes(), "audio/mpeg")
+            source_audio_match = re.fullmatch(r"/api/jobs/([a-f0-9]{32})/source-audio", path)
+            if source_audio_match:
+                audio = source_audio_path(RUNTIME / source_audio_match[1])
+                if not audio:
+                    return self.send(404, {"error": "原始音频不存在。"})
+                audio_path, mime = audio
+                return self.send(200, audio_path.read_bytes(), mime)
             if path.startswith("/api/jobs/"):
                 job_id = path.rsplit("/", 1)[-1]
                 with JOB_LOCK:
