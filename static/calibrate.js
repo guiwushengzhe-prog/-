@@ -15,7 +15,7 @@
   const panel=document.createElement('section');
   panel.className='midi-checker';panel.id='led-calibration';
   panel.innerHTML='<h4>逐颗灯珠自动校准</h4><p class="setting-help">亮一颗灯，按一次对应琴键。收到后自动保存并亮下一颗；同一琴键可以对应多颗灯。这里的灯号从1开始。</p><div class="midi-controls"><label>起始灯号 <input id="led-cal-first" type="number" min="1" max="512" value="14" style="width:75px"></label><label>结束灯号 <input id="led-cal-last" type="number" min="1" max="512" value="144" style="width:75px"></label><button class="button primary" id="led-cal-start">开始逐颗校准</button><button class="button secondary" id="led-cal-stop" disabled>暂停并保存</button></div><p class="midi-feedback" id="led-cal-message" aria-live="assertive">正在接入当前钢琴按键…</p>';
-  $('midi-feedback').closest('.midi-checker').after(panel);
+  $('auto-calibration-slot').append(panel);
   const undo=document.createElement('button');undo.className='button secondary';undo.textContent='撤销上一颗';undo.disabled=true;
   $('led-cal-stop').after(undo);
   let config,records={},current=13,last=143,active=false,busy=false,ready=false,starting=false;

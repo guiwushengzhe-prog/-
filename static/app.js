@@ -129,9 +129,9 @@
     accompaniment.start(state.time,end,timed?state.rate:1,timed);
   }
   function installAccompaniment(){
-    const controls=document.createElement('div');controls.className='accompaniment-controls';controls.style.cssText='padding:0 24px 14px';
+    const controls=document.createElement('div');controls.className='accompaniment-controls';
     controls.innerHTML='<label class="checkbox-label"><input type="checkbox" id="accompaniment-enabled">播放歌曲作为伴奏</label><label class="brightness-control" style="max-width:320px;margin-top:8px">伴奏音量 <input type="range" id="accompaniment-volume" min="0" max="100" value="35"><strong id="accompaniment-volume-value">35%</strong></label><p class="setting-help" id="accompaniment-status" role="status" style="margin:6px 0 0"></p>';
-    document.querySelector('.practice-toolbar').after(controls);
+    $('accompaniment-slot').append(controls);
     const media=document.createElement('audio');media.id='accompaniment-audio';media.hidden=true;controls.append(media);
     accompaniment=new PracticeAccompaniment(media,renderAccompaniment);renderAccompaniment();
     $('accompaniment-enabled').addEventListener('change',event=>{
@@ -202,8 +202,8 @@
   }
   function setFiveColors(enabled){setColorMode(enabled?'five':'ten');}
   function installFingerColors(){
-    const controls=document.createElement('div');controls.style.cssText='padding:0 24px 14px';
-    controls.innerHTML='<label style="display:block;max-width:340px">灯光配色<select id="finger-color-mode"><option value="ten">十色：区分左右手与手指</option><option value="five">五色：两手同指同色</option><option value="red">全红：不区分手指</option></select></label><p class="setting-help" style="margin:6px 0 0">全红：所有手指都只亮红色。五色：拇指红、食指黄、中指绿、无名指蓝、小指白。</p>';
+    const controls=document.createElement('div');controls.className='finger-color-controls';
+    controls.innerHTML='<label>灯光配色<select id="finger-color-mode"><option value="ten">十色：区分左右手与手指</option><option value="five">五色：两手同指同色</option><option value="red">全红：不区分手指</option></select></label><p class="setting-help">五色：拇指红、食指黄、中指绿、无名指蓝、小指白。</p>';
     $('finger-legend').before(controls);$('finger-color-mode').value=state.colorMode;
     $('finger-color-mode').addEventListener('change',event=>setColorMode(event.target.value));
   }
@@ -281,7 +281,7 @@
     state.renderedCurrent=-1;state.activeSignature='';state.midiJudgedGroup=-1;state.midiMatched.clear();
     $('song-title').textContent=project.title;
     $('song-key').textContent=project.key_label || `1 = ${pitchClasses[project.tonic]}`;
-    $('song-bpm').textContent=`${Math.round(project.bpm)} BPM`;
+    $('song-bpm').textContent=`${Math.round(project.bpm)} 拍/分`;
     $('song-count').textContent=`${project.notes.length} 音符 · ${timeLabel(project.duration)}`;
     const engine = String(project.transcription?.engine || '');
     $('song-source').textContent=project.source?.kind==='midi-search'?'自动找到 MIDI':project.source?.kind==='ncm'?'NCM → MP3':project.source?.kind==='demo'||/demo|示例|built-in/i.test(engine)?'示例':/midi/i.test(engine)?'MIDI':'音频转谱';
@@ -318,7 +318,8 @@
     const arrangement=sourceCount!==project.notes.length?`从 ${sourceCount} 个源音符自动编配为 ${project.notes.length} 个练习音符，原始音符保留在项目中。`:`共 ${project.notes.length} 个音符，${project.groups.length} 组同时发音。`;
     const provenance=project.source?.kind==='midi-search'?`<p>搜索曲名：${escapeHTML(project.source.query)}<br>曲库：${escapeHTML(project.source.provider)}<br>来源许可：${escapeHTML(project.source.license || '未注明')}<br>自动指法是为练习安排的建议，不代表原版谱的指法。</p>`:'';
     $('project-info-body').innerHTML=`<p>转谱：${escapeHTML(transcription)}<br>指法：${escapeHTML(fingering)}<br>${arrangement}简谱为练习视图，按 4/4 参考分组，保留识别所得的起止时间。</p>${provenance}<p>蓝牙 MIDI 输入连接后，可按当前高亮音组校对实时音高；音频转谱稿可能有误。定速模式按时间自动推进，练习校对建议使用手动模式固定当前音组。</p>${warnings?`<ul>${warnings}</ul>`:''}`;
-    $('project-info').open=!!warnings;
+    $('project-info').open=false;
+    $('project-info').querySelector('summary').textContent=`识别结果与项目说明${messages.length?` · ${messages.length} 条提示`:''}`;
   }
   function readMappedOnly(){try{return localStorage.getItem('piano-light-studio-mapped-only-v1')==='true';}catch(_){return false;}}
   function mappedPitch(pitch){return (config.mapping[pitch] || []).some(index=>Number.isInteger(index)&&index>=0&&index<config.ledCount);}
@@ -719,13 +720,14 @@
     $('play-button').setAttribute('aria-label',preparing?'取消开始倒计时':state.playing?'暂停练习':'3 秒后开始');
     if($('start-now'))$('start-now').hidden=state.playing;
     $('play-label').setAttribute('aria-live','polite');
-    $('mode-hint').textContent=state.mode==='correct'?'当前音组持续亮灯，要求的琴键必须同时按住才进入下一组；松开即取消，逐个弹不累计。空格暂停／继续，需要连接钢琴。':state.mode==='manual'?'当前音组持续亮灯，按 → 或「下一组」推进；空格熄灯／继续。普通钢琴无需接入电子琴键。':`灯光提前 ${state.lookahead.toFixed(2)} 秒提示。空格播放／暂停，← → 跳转音组；普通钢琴按设定速度跟练。`;
+    $('mode-hint').textContent=state.mode==='correct'?'和弦需同时按住，弹对后进入下一组。':state.mode==='manual'?'弹完后按 → 或点击下一组。':`灯光提前 ${state.lookahead.toFixed(2)} 秒提示。`;
     $('speed-range').disabled=state.mode!=='timed';
     $('speed-control')?.classList.toggle('disabled',state.mode!=='timed');
     $('loop-button').classList.toggle('active',state.loop);$('loop-button').setAttribute('aria-pressed',String(state.loop));
     $('loop-settings').hidden=!state.loop;
     document.querySelectorAll('[data-mode]').forEach(button=>{button.classList.toggle('selected',button.dataset.mode===state.mode);button.setAttribute('aria-pressed',String(button.dataset.mode===state.mode));});
     document.querySelectorAll('[data-hand]').forEach(button=>{button.classList.toggle('selected',button.dataset.hand===state.hand);button.setAttribute('aria-pressed',String(button.dataset.hand===state.hand));});
+    refreshWorkspace();
   }
   function updateClock(force=false) {
     const now=performance.now();
@@ -1004,7 +1006,7 @@
         if(result.status==='error')throw new Error(result.error || result.message || '自动处理失败。');
         setJob('running',result.message || '正在识别音符、生成双手指法与简谱灯光…');
       }
-      loadProject(result.project,true);setJob('done',`${file.name} · 已自动生成音符、指法、简谱和灯光，可直接开始练习。`);
+      loadProject(result.project,true);setJob('done',`${file.name} · 已自动生成音符、指法、简谱和灯光，可直接开始练习。`);navigateWorkspace('practice');
       refreshStatus();
     }catch(error){setJob('error',error.message);toast(error.message,'error');}
     finally{setImporting(false);$('file-input').value='';}
@@ -1014,7 +1016,7 @@
     $('demo-button').disabled=true;
     try{loadProject(await request('/api/demo'));$('job-panel').hidden=true;toast('已载入示例曲，按空格开始跟灯练习。','success');}
     catch(_){loadProject(fallbackDemo());toast('已载入内置示例。连接本地服务后可导入音乐。');}
-    finally{$('demo-button').disabled=false;}
+    finally{$('demo-button').disabled=false;navigateWorkspace('practice');}
   }
   async function searchMidi(event) {
     event.preventDefault();
@@ -1032,6 +1034,7 @@
           if(!result.project)throw new Error('未取得可用曲谱。');
           loadProject(result.project,true);
           setJob('done',`已自动匹配「${result.project.title}」，MIDI 已下载，双手指法、简谱与灯光已生成。`);
+          navigateWorkspace('practice');
           break;
         }
         if(result.status==='error')throw new Error(result.error || result.message || '没有找到可下载的匹配曲谱。');
@@ -1171,7 +1174,7 @@
     $('loop-start').addEventListener('change',readLoop);$('loop-end').addEventListener('change',readLoop);
     $('loop-set-start').addEventListener('click',()=>{$('loop-start').value=String(Math.max(0,state.time));readLoop();});
     $('loop-set-end').addEventListener('click',()=>{$('loop-end').value=String(Math.max(0,state.time));readLoop();});
-    $('settings-shortcut').addEventListener('click',()=>{$('settings-panel').open=true;$('settings-panel').scrollIntoView({behavior:'smooth',block:'start'});refreshPorts(false);});
+    $('settings-shortcut').addEventListener('click',()=>{navigateWorkspace('devices');$('settings-panel').open=true;$('key-calibration').scrollIntoView({behavior:'smooth',block:'start'});refreshPorts(false);});
     $('settings-panel').addEventListener('toggle',()=>{if($('settings-panel').open)refreshPorts(false);});
     $('refresh-ports').addEventListener('click',()=>refreshPorts());$('connect-button').addEventListener('click',()=>toggleConnection());
     $('brightness-range').addEventListener('input',event=>{config.brightness=Number(event.target.value)/100;rangeFill(event.target);updateMappingLabels();persistConfig();});
@@ -1185,6 +1188,7 @@
     $('export-events').addEventListener('click',exportEvents);$('export-midi').addEventListener('click',exportMidi);
     document.addEventListener('click',event=>{if(!event.target.closest('#export-menu'))$('export-menu').open=false;});
     document.addEventListener('keydown',event=>{
+      if($('practice-view')?.hidden)return;
       if(event.target.closest('input,select,textarea,[contenteditable="true"]') || event.ctrlKey || event.metaKey || event.altKey)return;
       if(event.code==='Space'){if(event.target.closest('button,summary'))return;event.preventDefault();play();}else if(event.key==='ArrowRight'){event.preventDefault();step(1);}else if(event.key==='ArrowLeft'){event.preventDefault();step(-1);}else if(event.key==='Home'){event.preventDefault();seek(0,0);}
     });
@@ -1197,8 +1201,48 @@
     });
     window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderKeyboard,150);});
   }
+  function navigateWorkspace(view,focus=true){
+    if(!['practice','library','devices'].includes(view))return;
+    if(view!=='practice')pause();
+    document.querySelectorAll('.app-view').forEach(element=>{element.hidden=element.id!==`${view}-view`;});
+    document.querySelectorAll('#app-navigation [data-open-view]').forEach(button=>{
+      const selected=button.dataset.openView===view;button.classList.toggle('selected',selected);
+      if(selected)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');
+    });
+    if(location.hash!==`#${view}`)history.replaceState(null,'',`#${view}`);
+    $('export-menu').open=false;
+    if(focus){document.querySelector(`#${view}-view h1`)?.focus({preventScroll:true});window.scrollTo({top:0,behavior:'instant'});}
+    if(view==='practice')requestAnimationFrame(()=>{renderKeyboard();updateActive(true);});
+    refreshWorkspace();
+  }
+  function refreshWorkspace(){
+    if(!$('practice-device-status')?.isConnected)return;
+    const piano=!!(state.midiInput||state.midiBleConnection),lights=state.serialConnected;
+    $('practice-device-status').textContent=`灯带${lights?'已连接':'未连接'} · 钢琴${piano?'已连接':'未连接'}`;
+    $('practice-device-dot').classList.toggle('neutral',!lights&&!piano);
+    const feedback=$('practice-feedback'),target=$('practice-midi-feedback');
+    feedback.dataset.state=state.mode==='correct'?state.midiFeedbackType:'';
+    if(state.countdown)target.textContent=`准备好，${state.countdown} 秒后开始。`;
+    else if(state.mode==='correct')target.textContent=piano?state.midiFeedback:'弹对推进需要连接钢琴；和弦要同时按住，本模式不播放伴奏。';
+    else target.textContent=state.mode==='manual'?'看灯弹奏，按 → 推进。':'按设定速度跟练。';
+    feedback.hidden=state.mode!=='correct'&&!state.countdown;
+    feedback.querySelector('.text-button').hidden=piano||state.mode!=='correct';
+  }
+  function installWorkspace(){
+    document.addEventListener('click',event=>{
+      const button=event.target.closest('[data-open-view]');if(button)navigateWorkspace(button.dataset.openView);
+    });
+    window.addEventListener('hashchange',()=>navigateWorkspace(location.hash.slice(1)));
+    for(const id of ['midi-feedback','midi-connection-status','device-title']){
+      new MutationObserver(refreshWorkspace).observe($(id),{childList:true,subtree:true,attributes:true,attributeFilter:['data-state']});
+    }
+    new MutationObserver(()=>{
+      document.querySelector('#app-navigation [data-open-view="library"]').classList.toggle('is-busy',state.importing);
+    }).observe($('drop-zone'),{attributes:true,attributeFilter:['class']});
+    const initial=location.hash.slice(1);navigateWorkspace(['practice','library','devices'].includes(initial)?initial:'practice',false);
+  }
   async function initialize() {
-    bindEvents();installFingerColors();installAccompaniment();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
+    bindEvents();installWorkspace();installFingerColors();installAccompaniment();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
     document.querySelectorAll('input[type=range]').forEach(rangeFill);
     requestAnimationFrame(animate);setInterval(syncSerial,80);
     const revision=state.loadRevision;
@@ -1214,6 +1258,7 @@
   window.PianoMappedOnlyNative=true;
   window.PianoProjectApi={current:()=>state.project,load:project=>loadProject(project)};
   window.PianoStartupReconnect={retry:reconnectDevices};
+  window.PianoWorkspace={navigate:navigateWorkspace};
   window.PianoFingerColors={set:setFiveColors,setMode:setColorMode,colorFor,get enabled(){return state.colorMode==='five';},get mode(){return state.colorMode;},palette:fiveFingerColors.slice()};
   window.addEventListener('piano-calibration-saved',()=>{
     config=readConfig();populateCalibration();renderKeyboard();renderScore();updateActive(true);
@@ -1229,10 +1274,7 @@
   const section=document.createElement('section');section.className='sidebar-section piano-library';
   section.setAttribute('aria-label','已转换曲谱曲库');
   section.innerHTML='<div class="library-heading"><h2>我的曲库</h2><button type="button" class="text-button" id="library-refresh">刷新</button></div><p class="setting-help" id="library-status" role="status">正在读取已转换的曲谱…</p><div id="library-list"></div>';
-  document.querySelector('.sidebar-section').after(section);
-  const style=document.createElement('style');
-  style.textContent='.library-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.library-heading h2{font-size:18px;margin:0}.piano-library .setting-help{margin:8px 0 12px}.library-song{display:block;width:100%;text-align:left;background:var(--panel-deep);border:1px solid var(--border);border-radius:9px;padding:11px 12px;margin:8px 0;color:var(--text)}.library-song:hover{border-color:var(--accent)}.library-song[aria-current="true"]{border-color:var(--accent);background:var(--accent-soft)}.library-song strong{display:block;overflow-wrap:anywhere;font-size:14px}.library-song small{display:block;color:var(--muted);margin-top:5px;font-size:12px}';
-  document.head.append(style);
+  $('library-saved').append(section);
   const database=new Promise((resolve,reject)=>{
     const opening=indexedDB.open('piano-light-library-v1',1);
     opening.onupgradeneeded=()=>opening.result.createObjectStore('scores',{keyPath:'id'});
@@ -1283,7 +1325,12 @@
       detail.textContent=`${project.notes.length} 音符 · ${Math.round(project.bpm||90)} 拍/分钟 · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
       button.append(title,detail);button.onclick=()=>open(id).catch(showError);$('library-list').append(button);
     }
-    $('library-status').textContent=entries.length?`${entries.length} 首已转换曲谱，点击即可练习。以后转换完成会自动加入。`:'还没有已转换曲谱。导入音乐并完成转谱后会自动加入。';
+    if(!entries.length){
+      const empty=document.createElement('div');empty.className='library-empty';
+      empty.innerHTML='<svg class="icon"><use href="#i-library"/></svg><strong>还没有曲目</strong><p>添加一首曲子，或先试试示例。</p><button class="button tonal" type="button">试试示例曲</button>';
+      empty.querySelector('button').onclick=()=>$('demo-button').click();$('library-list').append(empty);
+    }
+    $('library-status').textContent=entries.length?`${entries.length} 首曲目 · 选择一首，开始练习`:'已转换的曲谱会保存在这台电脑的浏览器中。';
     return entries;
   }
   async function open(id){
@@ -1293,6 +1340,7 @@
     await window.PianoProjectApi.load(entry.project);
     await render();
     $('library-status').textContent=`已载入「${entry.project.title}」，可以开始练习。`;
+    window.PianoWorkspace?.navigate('practice');
   }
   function showError(error){$('library-status').textContent=error.message||'读取曲库失败。';}
   async function refresh(){
@@ -1585,9 +1633,8 @@
   }
   function install(){
     panel=document.createElement('section');panel.className='phrase-practice';panel.setAttribute('aria-label','自动分段练习');
-    panel.innerHTML='<details open><summary>自动分段练习</summary><p class="setting-help" id="phrases-summary" role="status"></p><button type="button" class="button secondary" id="phrases-retry" hidden>重试分析</button><div id="phrases-list" class="phrase-list"></div><div class="phrase-actions"><button type="button" class="button secondary" id="phrases-prev">上一段</button><button type="button" class="button primary" id="phrases-next">下一段</button><button type="button" class="button secondary" id="phrases-occurrence" hidden>换一处重复位置</button><button type="button" class="button subtle" id="phrases-whole">练整首</button></div><p class="setting-help" id="phrases-current" aria-live="polite"></p><p class="setting-help" id="phrases-source"></p></details>';
-    document.querySelector('.score-wrapper').before(panel);
-    const style=document.createElement('style');style.textContent='.phrase-practice{padding:4px 24px 18px}.phrase-practice summary{cursor:pointer;font-size:15px;font-weight:600;color:var(--accent)}.phrase-practice p{margin:8px 0}.phrase-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;max-height:180px;overflow:auto;padding:4px 2px}.phrase-item{display:block;text-align:left;border:1px solid var(--border);border-radius:8px;padding:9px 11px;background:var(--panel-deep);color:var(--text)}.phrase-item[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}.phrase-item strong,.phrase-item small{display:block}.phrase-item strong{font-size:13px}.phrase-item small{font-size:11px;color:var(--muted);margin-top:3px}.phrase-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}';document.head.append(style);
+    panel.innerHTML='<details><summary>分段练习 · 从一小段开始</summary><p class="setting-help" id="phrases-summary" role="status"></p><button type="button" class="button secondary" id="phrases-retry" hidden>重试分析</button><div id="phrases-list" class="phrase-list"></div><div class="phrase-actions"><button type="button" class="button secondary" id="phrases-prev">上一段</button><button type="button" class="button primary" id="phrases-next">下一段</button><button type="button" class="button secondary" id="phrases-occurrence" hidden>换一处重复位置</button><button type="button" class="button subtle" id="phrases-whole">练整首</button></div><p class="setting-help" id="phrases-current" aria-live="polite"></p><details class="analysis-detail"><summary>查看分段分析说明</summary><p class="setting-help" id="phrases-source"></p></details></details>';
+    core('phrase-slot').append(panel);
     $('prev').onclick=()=>select(active-1);$('next').onclick=()=>select(active+1);
     $('occurrence').onclick=()=>select(active,(occurrenceIndex+1)%analysis.sections[active].occurrences.length);
     $('whole').onclick=clear;$('retry').onclick=()=>{window.PianoPhrasePractice.ready=refresh(null,true);};

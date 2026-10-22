@@ -78,3 +78,10 @@ PRamoneda/Automatic-Piano-Fingering (MIT research implementation), ByteDance pia
 ## Online score search
 
 `piano/midi_sources.py` is original standard-library provider code. It searches the official Mutopia website and preserves each score's title, composer, source URL and individual license. No website source code is copied. Individual downloaded scores keep their own licenses; the application's MIT license does not relicense music files. Only original synthetic audio is shipped as a test example; downloaded real performance evaluation audio/MIDI and cached search downloads are excluded from the application source archive.
+
+## 标题手写字体
+
+- 字体：Ma Shan Zheng（马善政手写体），来源 [Google Fonts 官方字体目录](https://github.com/google/fonts/tree/main/ofl/mashanzheng)。
+- 许可：SIL Open Font License 1.1，完整文本保存在 `licenses/Ma-Shan-Zheng-OFL.txt`。
+- 仅下载固定品牌与界面标题所需的字形子集，嵌入本地样式表；运行时不请求 Google 或其他字体服务。正文、谱面与数字使用系统字体。
+- 子集字形：琴光练习曲库设备与设置添加目我的；字体字节 SHA-256：`0068fb615a56294ecb48426ea101724ebb1a9ddd220a857f3b099414643deac5`。
