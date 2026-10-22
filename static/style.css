@@ -165,6 +165,9 @@ details[open] > summary .chevron { transform: rotate(180deg); }
 .practice-feedback .text-button { margin-left: auto; }
 .practice-feedback[data-state=correct] { color: #188038; }
 .practice-feedback[data-state=wrong] { color: #b3261e; }
+.practice-feedback[data-state=correct] > .status-dot { background: #188038; }
+.practice-feedback[data-state=wrong] > .status-dot { background: #b3261e; }
+.practice-feedback[data-state=help] > .status-dot { background: #0b57d0; }
 .transport { padding: 18px 22px 15px; border: 1px solid #e1e6ee; border-radius: 20px; background: #fff; }
 .transport-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .playback-buttons { display: flex; align-items: center; gap: 8px; }
@@ -345,6 +348,8 @@ input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); c
 .toast.success { background: #254f39; }
 .empty-score { display: grid; place-items: center; min-height: 300px; width: 100%; color: #8693a7; }
 .invalid { border-color: #b3261e !important; }
+.setting-help, .midi-feedback, .engine-status, .library-song small, .finger-item, .live-label, .led-caption, .song-meta, .mode-hint, .timeline-row, .score-caption { color: var(--muted); }
+#library-status[data-state=error] { color: #b3261e; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes loading { 0% { transform: translateX(-110%); } 100% { transform: translateX(330%); } }
 @keyframes toast-in { from { opacity: 0; transform: translateY(6px); } }

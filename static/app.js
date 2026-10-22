@@ -203,7 +203,7 @@
   function setFiveColors(enabled){setColorMode(enabled?'five':'ten');}
   function installFingerColors(){
     const controls=document.createElement('div');controls.className='finger-color-controls';
-    controls.innerHTML='<label>灯光配色<select id="finger-color-mode"><option value="ten">十色：区分左右手与手指</option><option value="five">五色：两手同指同色</option><option value="red">全红：不区分手指</option></select></label><p class="setting-help">五色：拇指红、食指黄、中指绿、无名指蓝、小指白。</p>';
+    controls.innerHTML='<label>灯光配色<select id="finger-color-mode"><option value="ten">十色：区分左右手与手指</option><option value="five">五色：两手同指同色</option><option value="red">全红：不区分手指</option></select></label>';
     $('finger-legend').before(controls);$('finger-color-mode').value=state.colorMode;
     $('finger-color-mode').addEventListener('change',event=>setColorMode(event.target.value));
   }
@@ -284,7 +284,7 @@
     $('song-bpm').textContent=`${Math.round(project.bpm)} 拍/分`;
     $('song-count').textContent=`${project.notes.length} 音符 · ${timeLabel(project.duration)}`;
     const engine = String(project.transcription?.engine || '');
-    $('song-source').textContent=project.source?.kind==='midi-search'?'自动找到 MIDI':project.source?.kind==='ncm'?'NCM → MP3':project.source?.kind==='demo'||/demo|示例|built-in/i.test(engine)?'示例':/midi/i.test(engine)?'MIDI':'音频转谱';
+    $('song-source').textContent=project.source?.kind==='midi-search'?'在线曲谱':project.source?.kind==='ncm'?'音乐转换':project.source?.kind==='demo'||/demo|示例|built-in/i.test(engine)?'示例':/midi/i.test(engine)?'乐器文件':'音频转谱';
     const convertedLink=$('converted-audio-download');convertedLink.hidden=true;convertedLink.removeAttribute('href');
     if(project.source?.converted_audio_url){
       try{
@@ -1203,6 +1203,9 @@
   }
   function navigateWorkspace(view,focus=true){
     if(!['practice','library','devices'].includes(view))return;
+    if(window.PianoLightCalibration?.active&&view!=='devices'){
+      history.replaceState(null,'','#devices');toast('请先暂停并保存校准，再切换页面。');return;
+    }
     if(view!=='practice')pause();
     document.querySelectorAll('.app-view').forEach(element=>{element.hidden=element.id!==`${view}-view`;});
     document.querySelectorAll('#app-navigation [data-open-view]').forEach(button=>{
@@ -1330,6 +1333,7 @@
       empty.innerHTML='<svg class="icon"><use href="#i-library"/></svg><strong>还没有曲目</strong><p>添加一首曲子，或先试试示例。</p><button class="button tonal" type="button">试试示例曲</button>';
       empty.querySelector('button').onclick=()=>$('demo-button').click();$('library-list').append(empty);
     }
+    delete $('library-status').dataset.state;$('library-refresh').textContent='刷新';
     $('library-status').textContent=entries.length?`${entries.length} 首曲目 · 选择一首，开始练习`:'已转换的曲谱会保存在这台电脑的浏览器中。';
     return entries;
   }
@@ -1342,7 +1346,10 @@
     $('library-status').textContent=`已载入「${entry.project.title}」，可以开始练习。`;
     window.PianoWorkspace?.navigate('practice');
   }
-  function showError(error){$('library-status').textContent=error.message||'读取曲库失败。';}
+  function showError(error){
+    $('library-status').textContent=error.message||'读取曲库失败。';$('library-status').dataset.state='error';
+    $('library-refresh').textContent='重试';
+  }
   async function refresh(){
     $('library-refresh').disabled=true;
     try{
@@ -1367,7 +1374,7 @@
   });
   $('library-refresh').onclick=()=>refresh().catch(showError);
   window.PianoLibrary={open,refresh,list:()=>storage('getAll')};
-  window.PianoLibrary.ready=refresh().catch(error=>{showError(error);throw error;});
+  window.PianoLibrary.ready=refresh().catch(error=>{showError(error);return [];});
 })();
 
 /* 邻键替代：原谱独立保留，适配后的同一份音符用于显示、指法、灯光及按键判定。 */
