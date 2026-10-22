@@ -1,6 +1,6 @@
 """Public MIDI search/download providers; no audio recognition or paid API.
 
-Current verified provider: the official Mutopia Project (solo-piano search).
+Providers: Mutopia Project and Ichigo's Sheet Music (solo-piano search).
 All provider parsing code is original. Individual music licenses and provenance
 are returned separately; the software does not claim ownership of downloaded music.
 """
@@ -17,14 +17,14 @@ import struct
 import tempfile
 import unicodedata
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 MAX_MIDI_BYTES = 2 * 1024 * 1024
 MAX_HTML_BYTES = 2 * 1024 * 1024
 REQUEST_TIMEOUT = 12
 BASE_URL = "https://www.mutopiaproject.org/"
-_ALLOWED_HOSTS = frozenset(("www.mutopiaproject.org", "mutopiaproject.org"))
+_ALLOWED_HOSTS = frozenset(("www.mutopiaproject.org", "mutopiaproject.org", "ichigos.com", "www.ichigos.com"))
 
 # Query aliases only: every returned candidate still comes from a live provider.
 # Multiple established English titles help repositories with different naming.
@@ -44,6 +44,23 @@ TITLE_ALIASES = {
     "德彪西": ("Debussy",),
     "舒曼": ("Schumann",),
     "萨蒂": ("Satie",),
+    "菊次郎的夏天": ("Summer",),
+    "菊次郎之夏": ("Summer",),
+    "菊次郎の夏": ("Summer",),
+    "菊次郎的夏": ("Summer",),
+    "天空之城": ("Kimi wo Nosete", "Carrying You"),
+    "永远同在": ("Itsumo Nando Demo", "Always with Me"),
+    "生命之名": ("Inochi no Namae", "The Name of Life"),
+    "人生的旋转木马": ("Merry Go Round of Life",),
+    "哈尔的移动城堡": ("Merry Go Round of Life",),
+    "风之甬道": ("Path of the Wind",),
+    "起风了": ("Hikoukigumo",),
+    "龙猫": ("My Neighbor Totoro",),
+    "梦中的婚礼": ("Mariage d Amour",),
+    "雨的印记": ("Kiss the Rain",),
+    "水边的阿狄丽娜": ("Ballade pour Adeline",),
+    "久石让": ("Joe Hisaishi",),
+    "久石譲": ("Joe Hisaishi",),
 }
 
 
@@ -75,12 +92,12 @@ def _validate_url(url):
     return parsed
 
 
-def _fetch(url, limit):
+def _fetch(url, limit, data=None):
     opener = build_opener(_NoRedirect)
     for redirect in range(5):
         _validate_url(url)
-        request = Request(url, headers={"User-Agent": "PianoLightStudio/0.1 (public MIDI lookup)",
-                                        "Accept-Encoding": "identity"})
+        request = Request(url, data=data, headers={"User-Agent": "PianoLightStudio/0.1 (public MIDI lookup)",
+                                                  "Accept-Encoding": "identity"})
         try:
             response = opener.open(request, timeout=REQUEST_TIMEOUT)
         except HTTPError as exc:
@@ -141,6 +158,112 @@ def _query_variants(query):
     if not any(any(c.isalnum() for c in value) for value in variants):
         raise MidiSourceError("请输入实际曲名。")
     return variants, used
+
+
+def matches_local_title(query, title):
+    """Match a converted score using the same translated titles as online search."""
+    terms, _ = _query_variants(query)
+    terms += [re.sub(r"\bJoe\s+Hisaishi\b", "", term, flags=re.I).strip() for term in terms]
+    names, _ = _query_variants(title)
+    actual = [_normal(value) for value in (title, *names)]
+    for term in (query, *terms):
+        if _normal(term) == "summer":
+            if any(name.replace("joe hisaishi", "").replace("久石譲", "").replace("久石让", "").strip()
+                   in ("summer", "summer full version") for name in actual):
+                return True
+            continue
+        words = set(_normal(term).split())
+        if words and any(words.issubset(set(name.split())) or
+                         (len(_normal(term)) >= 2 and _normal(term) in name) for name in actual):
+            return True
+    return False
+
+
+class _IchigoParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.heading = False
+        self.italic = False
+        self.anchor = False
+        self.line = []
+        self.last_line = ""
+        self.work = ""
+        self.page = "https://ichigos.com/search"
+        self.song = ""
+        self.instrument = ""
+        self.sheets = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "span" and "title2" in attrs.get("class", "").split():
+            self.heading = True
+            self.work = ""
+            self.song = ""
+            self.line = []
+        elif tag == "br":
+            text = _text("".join(self.line)).strip(" |")
+            if text:
+                self.last_line = text
+            self.line = []
+        elif tag == "i":
+            self.italic = True
+            self.instrument = ""
+            self.song = self.last_line
+        elif tag == "a":
+            self.anchor = True
+            url = urljoin("https://ichigos.com/", attrs.get("href", ""))
+            if self.heading and urlsplit(url).path.startswith("/sheets/"):
+                self.page = url
+            elif (self.song and urlsplit(url).path == "/res/getfile.php" and
+                  parse_qs(urlsplit(url).query).get("type") == ["midi"]):
+                self.sheets.append({"raw_title": self.song, "work": self.work,
+                                    "instrument": self.instrument, "midi_url": url, "page_url": self.page})
+
+    def handle_data(self, value):
+        if self.heading:
+            self.work += value
+        elif self.italic:
+            self.instrument += value
+        elif not self.anchor:
+            self.line.append(value)
+
+    def handle_endtag(self, tag):
+        if tag == "span" and self.heading:
+            self.heading = False
+        elif tag == "i":
+            self.italic = False
+        elif tag == "a":
+            self.anchor = False
+
+
+def _ichigo_search(term, all_terms, aliases, original_query):
+    # The site's search form accepts POST; result links carry fresh download tokens.
+    lookup = re.sub(r"\bJoe\s+Hisaishi\b", "", term, flags=re.I).strip()
+    if not lookup:
+        return []
+    body = urlencode({"q": "1", "qtitle": lookup, "qdesc": "piano", "qauthor": ""}).encode()
+    html, _ = _fetch("https://ichigos.com/sheets", MAX_HTML_BYTES, body)
+    parser = _IchigoParser()
+    parser.feed(html.decode("utf-8", errors="replace"))
+    candidates = []
+    for sheet in parser.sheets:
+        instrument = re.sub(r"^for\s+", "", sheet["instrument"].strip(), flags=re.I)
+        if _normal(instrument) not in ("piano", "piano solo", "solo piano", "keyboard"):
+            continue
+        title = re.sub(r"\s*\(Transcribed by .*\)\s*$", "", sheet["raw_title"], flags=re.I).strip()
+        transcriber = re.search(r"\(Transcribed by (.*)\)\s*$", sheet["raw_title"], flags=re.I)
+        similarity = max(_title_similarity(value, title, "", "Joe Hisaishi") for value in all_terms)
+        summer = _normal(lookup) == "summer" and _normal(sheet["work"]) == "kikujiro"
+        composer = "Joe Hisaishi" if summer else ""
+        score = min(1., similarity * .88 + .10 + (.02 if summer else 0))
+        candidates.append({**sheet, "title": title, "composer": composer,
+                           "provider": "Ichigo's Sheet Music", "license": "来源网站未注明开放许可",
+                           "license_url": "https://ichigos.com/legal", "piano_solo": True,
+                           "match_score": round(score, 6), "title_similarity": round(similarity, 6),
+                           "composer_match": bool(composer), "opus": "", "query": original_query,
+                           "transcriber": transcriber.group(1) if transcriber else "",
+                           "search_terms": all_terms, "query_aliases_used": aliases})
+    return candidates
 
 
 class _MutopiaTableParser(HTMLParser):
@@ -275,16 +398,21 @@ def search(query):
     terms, aliases = _query_variants(query)
     candidates = {}
     failures = []
-    for term in terms[:4]:
-        try:
-            found = _mutopia_search(term, terms, aliases, query.strip())
-        except MidiSourceError as exc:
-            failures.append(str(exc))
-            continue
-        for candidate in found:
-            old = candidates.get(candidate["midi_url"])
-            if old is None or candidate["match_score"] > old["match_score"]:
-                candidates[candidate["midi_url"]] = candidate
+    for provider in (_ichigo_search, _mutopia_search):
+        for term in terms[:4]:
+            try:
+                found = provider(term, terms, aliases, query.strip())
+            except MidiSourceError as exc:
+                failures.append(str(exc))
+                continue
+            for candidate in found:
+                old = candidates.get(candidate["midi_url"])
+                if old is None or candidate["match_score"] > old["match_score"]:
+                    candidates[candidate["midi_url"]] = candidate
+        # A strong solo-piano match avoids querying a second, unrelated catalog.
+        if any(c["piano_solo"] and c["title_similarity"] >= .9 and c["match_score"] >= .9
+               for c in candidates.values()):
+            break
     if not candidates and failures:
         raise MidiSourceError(failures[0])
     return sorted(candidates.values(), key=lambda c: (-c["match_score"], -c["title_similarity"], c["title"], c["midi_url"]))[:20]
@@ -319,7 +447,7 @@ def download_best(query, directory, progress=None):
     candidates = search(query)
     eligible = [c for c in candidates if c["piano_solo"] and c["title_similarity"] >= .62 and c["match_score"] >= .70]
     if not eligible:
-        raise MidiSourceError("未在当前公开曲库找到足够匹配的钢琴独奏 MIDI。曲库以古典作品为主，可尝试更完整的曲名或作曲家；不会用不相关曲目代替。")
+        raise MidiSourceError("本机及在线曲库暂未找到匹配的钢琴曲谱。可补充完整曲名，或导入音乐文件自动转谱。")
     errors = []
     for candidate in eligible[:3]:
         if progress:

@@ -5,7 +5,7 @@ import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from unittest.mock import patch
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from piano import server
 from piano.music import demo_project
@@ -72,6 +72,27 @@ class LibraryTests(unittest.TestCase):
             with urlopen(f"http://127.0.0.1:{http.server_port}/api/jobs/{project_id}/source-audio", timeout=5) as response:
                 self.assertEqual(response.headers.get_content_type(), "audio/wav")
                 self.assertEqual(response.read(), data)
+        finally:
+            http.shutdown()
+            http.server_close()
+            thread.join(timeout=5)
+
+    def test_search_reuses_converted_score_with_chinese_and_english_titles(self):
+        self.project['title'] = '久石譲 - Summer'
+        self.save('e' * 32, self.project)
+        http = ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
+        thread = threading.Thread(target=http.serve_forever, daemon=True)
+        thread.start()
+        try:
+            for query in ('summer', '菊次郎的夏天', '久石让 Summer'):
+                request = Request(f'http://127.0.0.1:{http.server_port}/api/search-midi',
+                                  data=json.dumps({'query': query}).encode(),
+                                  headers={'Content-Type': 'application/json'})
+                with urlopen(request, timeout=5) as response:
+                    result = json.load(response)
+                self.assertTrue(result['local'])
+                self.assertEqual(result['project']['title'], self.project['title'])
+                self.assertNotIn('job_id', result)
         finally:
             http.shutdown()
             http.server_close()

@@ -17,7 +17,7 @@
     serialLastSent:0, serialLastFrame:'', serialForceClear:false, importing:false, loadRevision:0,
     maxNoteDuration:0, testUntil:0, testNotes:[], testPixels:null, renderedCurrent:-1,
     midiAccess:null, midiInput:null, midiBleConnection:null, midiBleBusy:false, countdown:0, midiMatched:new Set(), midiHeld:new Set(), midiJudgedGroup:-1,
-    midiFeedback:'点“搜索并连接蓝牙钢琴”，再从浏览器弹出的列表中选择设备。', midiFeedbackType:''};
+    midiFeedback:'', midiFeedbackType:''};
   const keyElements = new Map();
   let ledElements = [];
   let scoreElements = new Map();
@@ -34,6 +34,7 @@
       try{const saved=JSON.parse(localStorage.getItem('piano-light-accompaniment-v1')||'{}');this.enabled=saved.enabled===true;this.volume=clamp(finite(saved.volume,.35),0,1);}catch(_){}
       media.preload='auto';media.volume=this.volume;
       media.addEventListener('error',()=>{if(this.enabled&&this.source)this.fail('原曲音频暂时无法播放，请重新载入曲目后再试。');});
+      for(const event of ['playing','waiting','pause','canplay','ended'])media.addEventListener(event,()=>this.report());
     }
     save(){try{localStorage.setItem('piano-light-accompaniment-v1',JSON.stringify({enabled:this.enabled,volume:this.volume}));}catch(_) {}}
     load(raw){
@@ -58,7 +59,7 @@
       this.generation++;if(this.timer!==null)clearTimeout(this.timer);this.timer=null;this.live=false;
       this.media.pause();for(const voice of this.voices){try{voice.stop();}catch(_) {}}this.voices.clear();
     }
-    fail(message){this.stop();this.error=message;this.report();}
+    fail(message){this.stop();this.error=message;this.report();toast(message,'error');}
     setVolume(value){this.volume=clamp(value,0,1);this.media.volume=this.volume;if(this.master)this.master.gain.value=this.volume;this.save();}
     start(time,end,rate,timed){
       this.stop();if(!this.enabled||end<=Math.max(0,time))return;
@@ -120,6 +121,15 @@
     $('accompaniment-volume').value=String(Math.round(accompaniment.volume*100));
     $('accompaniment-volume-value').textContent=`${Math.round(accompaniment.volume*100)}%`;
     $('accompaniment-status').textContent=accompaniment.description(state.mode);
+    const toggle=$('accompaniment-toggle');
+    if(toggle){
+      const on=available&&accompaniment.enabled;
+      toggle.setAttribute('aria-pressed',String(on));toggle.disabled=!available;
+      toggle.classList.toggle('active',on);
+      toggle.querySelector('span').textContent=on?(accompaniment.error?'伴奏失败':accompaniment.live?(accompaniment.source&&accompaniment.media.paused?'伴奏加载中':'伴奏播放中'):'伴奏开'):'伴奏关';
+      toggle.classList.toggle('error',on&&!!accompaniment.error);
+      toggle.title=accompaniment.description(state.mode);
+    }
   }
   function startAccompaniment(){
     if(state.mode==='correct'){accompaniment?.stop();return;}
@@ -138,6 +148,10 @@
       if(state.mode==='correct'){accompaniment.stop();renderAccompaniment();return;}
       if(state.playing&&state.mode==='timed'){state.time=currentTimedPosition();state.anchorTime=state.time;state.anchorNow=performance.now();}
       accompaniment.enabled=event.target.checked;accompaniment.save();accompaniment.stop();accompaniment.prepare();startAccompaniment();renderAccompaniment();
+    });
+    $('accompaniment-toggle')?.addEventListener('click',()=>{
+      const input=$('accompaniment-enabled');if(input.disabled)return;
+      input.checked=!input.checked;input.dispatchEvent(new Event('change',{bubbles:true}));
     });
     $('accompaniment-volume').addEventListener('input',event=>{accompaniment.setVolume(Number(event.target.value)/100);rangeFill(event.target);renderAccompaniment();});
   }
@@ -355,7 +369,7 @@
   }
   function renderMidiJudgement() {
     const feedback=$('midi-feedback');
-    if(feedback) { feedback.textContent=state.midiFeedback;feedback.dataset.state=state.midiFeedbackType; }
+    if(feedback) { feedback.textContent=state.midiFeedback;feedback.dataset.state=state.midiFeedbackType;feedback.hidden=!state.midiFeedback; }
     document.querySelectorAll('.score-note').forEach(element=>{
       const note=state.noteById.get(element.dataset.note);
       element.classList.toggle('midi-correct',!!note && state.midiJudgedGroup===state.groupIndex && state.midiMatched.has(note.pitch));
@@ -366,7 +380,7 @@
   }
   function resetMidiJudgement() {
     state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';
-    state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'点击“搜索并连接蓝牙钢琴”，直接连接琴的蓝牙 MIDI 服务。';
+    state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'';
     renderMidiJudgement();
   }
   function matchHeldMidiPitches(expected=midiExpectedPitches()) {
@@ -578,18 +592,21 @@
     const groups=state.project?.groups || [];
     const start=state.scorePage*PAGE_SIZE,end=Math.min(groups.length,start+PAGE_SIZE);
     const maxChord=groups.slice(start,end).reduce((max,group)=>{const notes=notesInGroup(group);return Math.max(max,notes.filter(note=>note.hand==='L').length,notes.filter(note=>note.hand==='R').length);},1);
-    document.querySelector('.score-wrapper').style.setProperty('--staff-height',`${Math.max(132,maxChord*48+16)}px`);
+    const compact=window.innerWidth>=1050&&window.innerHeight>=680;
+    document.querySelector('.score-wrapper').style.setProperty('--staff-height',`${compact?Math.max(70,Math.ceil(maxChord/3)*34+10):Math.max(132,maxChord*48+16)}px`);
     scoreElements=new Map();
     if(!groups.length) { $('score-grid').innerHTML='<div class="empty-score">导入一首音乐，开始你的练习。</div>';return; }
     $('score-grid').innerHTML=groups.slice(start,end).map((group,offset) => {
       const index=start+offset;
       const notes=notesInGroup(group).filter(note=>!state.mappedOnly||mappedPitch(note.pitch));
       if(state.mappedOnly&&!notes.some(selected))return '';
+      const columns=compact?Math.min(3,Math.max(1,notes.filter(note=>note.hand==='L').length,notes.filter(note=>note.hand==='R').length)):1;
       const handMarkup=hand => {
         const handNotes=notes.filter(note => note.hand===hand).sort((a,b)=>b.pitch-a.pitch);
-        return `<div class="score-hand ${state.hand!=='both' && state.hand!==hand?'filtered':''}">${handNotes.length?handNotes.map(note=>`<span class="score-note" data-note="${escapeHTML(note.id)}" style="${fingerStyle(note)}">${degreeMarkup(note)}<span class="note-finger" title="${hand==='R'?'右':'左'}手 ${note.finger} 指">${note.finger}</span></span>`).join(''):'<span class="score-rest">·</span>'}</div>`;
+        const chord=compact&&handNotes.length>1;
+        return `<div class="score-hand ${state.hand!=='both' && state.hand!==hand?'filtered':''} ${chord?'chord':''} ${compact&&handNotes.length>3?'dense-chord':''}" style="--chord-columns:${Math.min(3,handNotes.length)||1}">${handNotes.length?handNotes.map(note=>`<span class="score-note" data-note="${escapeHTML(note.id)}" style="${fingerStyle(note)}">${degreeMarkup(note)}<span class="note-finger" title="${hand==='R'?'右':'左'}手 ${note.finger} 指">${note.finger}</span></span>`).join(''):'<span class="score-rest">·</span>'}</div>`;
       };
-      return `<button class="score-group ${index===state.groupIndex?'current':''} ${index<state.groupIndex?'played':''}" data-index="${index}" aria-label="第 ${index+1} 音组，${timeLabel(group.time,true)}，${notes.map(note=>pitchName(note.pitch)).join('、')}"><span class="group-label"><strong>${String(index+1).padStart(2,'0')}</strong><span>${timeLabel(group.time)}</span></span>${handMarkup('R')}${handMarkup('L')}</button>`;
+      return `<button class="score-group ${index===state.groupIndex?'current':''} ${index<state.groupIndex?'played':''}" style="--group-width:${columns*76+16}px" data-index="${index}" aria-label="第 ${index+1} 音组，${timeLabel(group.time,true)}，${notes.map(note=>pitchName(note.pitch)).join('、')}"><span class="group-label"><strong>${String(index+1).padStart(2,'0')}</strong><span>${timeLabel(group.time)}</span></span>${handMarkup('R')}${handMarkup('L')}</button>`;
     }).join('');
     $('score-grid').querySelectorAll('.score-group').forEach(element=>scoreElements.set(Number(element.dataset.index),element));
     $('score-range').textContent=`${start+1}–${end} / ${groups.length} 组`;
@@ -600,7 +617,7 @@
   function updateScoreCurrent(autoscroll=true) {
     if(state.midiJudgedGroup!==state.groupIndex) {
       state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';
-      state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'点击“搜索并连接蓝牙钢琴”，直接连接琴的蓝牙 MIDI 服务。';
+      state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'';
     }
     renderMidiJudgement();
     if(state.renderedCurrent===state.groupIndex)return;
@@ -707,20 +724,22 @@
     }
     const activeIds=new Set(notes.map(note=>String(note.id)));
     $('score-grid').querySelectorAll('.score-note').forEach(element=>element.classList.toggle('sounding',activeIds.has(element.dataset.note)));
-    $('live-notes').innerHTML=notes.length?notes.map(note=>`<span class="live-note ${isPending(note)?'pending':''}" style="--finger-color:${colorFor(note)}">${isPending(note)?'<span class="pending-label">预亮</span>':''}${escapeHTML(pitchName(note.pitch))}<span>${note.hand==='L'?'左':'右'}${note.finger}</span></span>`).join(''):`<span class="muted">${state.playing?'等待下一组音符…':'点击开始，查看音符与指法'}</span>`;
+    $('live-notes').innerHTML=notes.length?notes.map(note=>`<span class="live-note ${isPending(note)?'pending':''}" style="--finger-color:${colorFor(note)}">${isPending(note)?'<span class="pending-label">预亮</span>':''}${escapeHTML(pitchName(note.pitch))}<span>${note.hand==='L'?'左':'右'}${note.finger}</span></span>`).join(''):(state.playing?'<span class="muted">等待下一组音符…</span>':'');
     $('playing-dot').classList.toggle('active',!!notes.length);
     $('live-status').textContent=state.testUntil>performance.now()?'灯珠测试':state.playing?(state.mode==='correct'?'等待弹对':state.mode==='manual'?'等待你推进':'跟灯弹奏'):state.time>0?'已暂停':'准备就绪';
   }
   function renderTransport() {
     renderAccompaniment();
     const preparing=state.countdown>0;
-    $('play-label').textContent=preparing?`${state.countdown} 秒后开始 · 点此取消`:state.playing?'暂停练习':'3 秒后开始';
+    const needsPiano=state.mode==='correct'&&!state.midiInput&&!state.midiBleConnection;
+    $('play-label').textContent=preparing?`${state.countdown} 秒后开始 · 点此取消`:state.playing?'暂停练习':needsPiano?'连接钢琴再开始':'3 秒后开始';
     $('play-icon').querySelector('use').setAttribute('href',state.playing?'#i-pause':'#i-play');
     $('play-button').classList.toggle('is-playing',state.playing);
-    $('play-button').setAttribute('aria-label',preparing?'取消开始倒计时':state.playing?'暂停练习':'3 秒后开始');
-    if($('start-now'))$('start-now').hidden=state.playing;
+    $('play-button').setAttribute('aria-label',preparing?'取消开始倒计时':state.playing?'暂停练习':needsPiano?'连接钢琴再开始':'3 秒后开始');
+    if($('start-now'))$('start-now').hidden=state.playing||needsPiano;
     $('play-label').setAttribute('aria-live','polite');
     $('mode-hint').textContent=state.mode==='correct'?'和弦需同时按住，弹对后进入下一组。':state.mode==='manual'?'弹完后按 → 或点击下一组。':`灯光提前 ${state.lookahead.toFixed(2)} 秒提示。`;
+    $('mode-hint').hidden=state.mode==='timed';
     $('speed-range').disabled=state.mode!=='timed';
     $('speed-control')?.classList.toggle('disabled',state.mode!=='timed');
     $('loop-button').classList.toggle('active',state.loop);$('loop-button').setAttribute('aria-pressed',String(state.loop));
@@ -751,7 +770,7 @@
     if(state.project)state.time=clamp(state.time,0,state.project.duration);
     updateActive(true);renderTransport();updateClock(true);syncSerial();
   }
-  function play(ready=false) {
+  function play(ready=false,immediate=false) {
     if(!state.project)return;
     if(state.playing || state.countdown){pause();return;}
     if(window.PianoLightCalibration?.active)return;
@@ -760,8 +779,9 @@
       if(!state.midiInput&&!state.midiBleConnection){toast('请先连接钢琴，再使用弹对推进。','error');return;}
       resetMidiJudgement();
     }
+    state.loadRevision++;
+    if(state.mode!=='correct')accompaniment?.prepare();
     if(!ready){
-      if(state.mode!=='correct')accompaniment?.prepare();
       state.countdown=3;clearTest();state.serialForceClear=true;syncSerial();renderTransport();
       const until=performance.now()+3000;
       const tick=()=>{
@@ -778,7 +798,7 @@
     if(state.mode==='timed'){
       if(state.time>=state.project.duration-0.02)state.time=state.loop?state.loopA:0;
       if(state.loop && (state.time<state.loopA || state.time>=state.loopB))state.time=state.loopA;
-      if(state.time===0 && state.lookahead>0)state.time=-state.lookahead;
+      if(!immediate && state.time===0 && state.lookahead>0)state.time=-state.lookahead;
       state.anchorTime=state.time;state.anchorNow=performance.now();
     } else if(!groupHasSelected(state.groupIndex)) {
       const next=state.project.groups.findIndex((group,index)=>index>=state.groupIndex && groupHasSelected(index));
@@ -790,7 +810,7 @@
   }
   function startImmediately(){
     if(state.countdown)pause();
-    play(true);
+    play(true,true);
   }
   function seek(time, groupIndex=null) {
     pause();
@@ -856,7 +876,7 @@
     $('device-subtitle').textContent=state.serialConnected?'与当前练习时间轴同步':'连接 ESP32 后同步到实物';
     $('device-dot').classList.toggle('neutral',!state.serialConnected);
     $('connect-button').innerHTML=`<svg class="icon"><use href="#i-plug"/></svg>${state.serialConnected?'断开灯带':'连接灯带'}`;
-    $('connect-button').classList.toggle('primary',!state.serialConnected);
+    $('connect-button').classList.toggle('tonal',!state.serialConnected);
     $('connect-button').classList.toggle('secondary',state.serialConnected);
     $('serial-port').disabled=state.serialConnected;
   }
@@ -1026,6 +1046,10 @@
     pause();setImporting(true);setJob('running',`正在为「${query}」搜索 MIDI…`);
     try {
       const job=await post('/api/search-midi',{query,hand_size:$('hand-size').value});
+      if(job.project){
+        loadProject(job.project);$('job-panel').hidden=true;
+        toast(`已从曲库载入「${job.project.title}」。`,'success');navigateWorkspace('practice');return;
+      }
       if(!job.job_id)throw new Error('服务未返回搜索任务编号。');
       while(true){
         await new Promise(resolve=>setTimeout(resolve,650));
@@ -1149,7 +1173,10 @@
       const input=state.midiAccess?.inputs.get(event.target.value);
       if(input)connectMidiInput(input);
     });
-    $('play-button').addEventListener('click',()=>play());$('prev-button').addEventListener('click',()=>step(-1));$('next-button').addEventListener('click',()=>step(1));
+    $('play-button').addEventListener('click',()=>{
+      if(state.mode==='correct'&&!state.midiInput&&!state.midiBleConnection){navigateWorkspace('devices');focusPreparation('piano');return;}
+      play();
+    });$('prev-button').addEventListener('click',()=>step(-1));$('next-button').addEventListener('click',()=>step(1));
     $('start-now').addEventListener('click',startImmediately);
     $('timeline').addEventListener('input',event=>seek(Number(event.target.value)));
     $('speed-range').addEventListener('input',event=>{
@@ -1199,7 +1226,7 @@
       const body=new Blob([JSON.stringify({pixels:[],brightness:config.brightness})],{type:'application/json'});
       navigator.sendBeacon('/api/serial/frame',body);
     });
-    window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(renderKeyboard,150);});
+    window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{renderKeyboard();renderScore();updateActive(true);},150);});
   }
   function navigateWorkspace(view,focus=true){
     if(!['practice','library','devices'].includes(view))return;
@@ -1207,6 +1234,7 @@
       history.replaceState(null,'','#devices');toast('请先暂停并保存校准，再切换页面。');return;
     }
     if(view!=='practice')pause();
+    document.body.dataset.view=view;
     document.querySelectorAll('.app-view').forEach(element=>{element.hidden=element.id!==`${view}-view`;});
     document.querySelectorAll('#app-navigation [data-open-view]').forEach(button=>{
       const selected=button.dataset.openView===view;button.classList.toggle('selected',selected);
@@ -1215,7 +1243,7 @@
     if(location.hash!==`#${view}`)history.replaceState(null,'',`#${view}`);
     $('export-menu').open=false;
     if(focus){document.querySelector(`#${view}-view h1`)?.focus({preventScroll:true});window.scrollTo({top:0,behavior:'instant'});}
-    if(view==='practice')requestAnimationFrame(()=>{renderKeyboard();updateActive(true);});
+    if(view==='practice')requestAnimationFrame(()=>{renderKeyboard();renderScore();updateActive(true);});
     refreshWorkspace();
   }
   function refreshWorkspace(){
@@ -1228,15 +1256,62 @@
     if(state.countdown)target.textContent=`准备好，${state.countdown} 秒后开始。`;
     else if(state.mode==='correct')target.textContent=piano?state.midiFeedback:'弹对推进需要连接钢琴；和弦要同时按住，本模式不播放伴奏。';
     else target.textContent=state.mode==='manual'?'看灯弹奏，按 → 推进。':'按设定速度跟练。';
-    feedback.hidden=state.mode!=='correct'&&!state.countdown;
+    feedback.hidden=state.mode!=='correct';
     feedback.querySelector('.text-button').hidden=piano||state.mode!=='correct';
+    renderPreparation();
+  }
+  function preparationState(){
+    const lights=state.serialConnected,piano=!!(state.midiInput||state.midiBleConnection);
+    const keys=Object.keys(config.mapping).filter(pitch=>mappedPitch(Number(pitch))).length;
+    const mapped=config.confirmed&&keys>0;
+    const next=state.mode==='correct'&&!piano?'piano':!lights?'lights':!piano?'piano':!mapped?'map':'practice';
+    return {lights,piano,mapped,keys,next};
+  }
+  function renderPreparation(){
+    if(!$('setup-next-action')?.isConnected)return;
+    const ready=preparationState();
+    const copy={lights:['先让灯带亮起来。','连接后，练习提示会同步到实体琴键。','连接灯带'],
+      piano:['下一步，连接钢琴。','连接钢琴后，就能使用弹对推进。','连接蓝牙钢琴'],
+      map:['最后，核对琴键对应。',`已有 ${ready.keys} 个琴键对应灯珠，核对后即可跟灯练习。`,'核对琴键'],
+      practice:['准备好了，开始弹吧。',`${ready.keys} 个琴键已核对，钢琴与灯带已连接。`,'进入练习']}[ready.next];
+    $('setup-next-title').textContent=copy[0];$('setup-next-detail').textContent=copy[1];$('setup-next-label').textContent=copy[2];
+    $('setup-next-action').dataset.next=ready.next;
+    $('setup-ready-count').textContent=`${[ready.lights,ready.piano,ready.mapped].filter(Boolean).length} / 3 已就绪`;
+    $('setup-lights-state').textContent=ready.lights?'已连接':'未连接';
+    $('setup-piano-state').textContent=ready.piano?'已连接':'弹对推进时使用';
+    $('setup-map-state').textContent=ready.mapped?`已核对 ${ready.keys} 键`:`${ready.keys} 键待核对`;
+    $('calibration-overview').textContent=`${config.ledCount} 颗灯 · ${ready.keys} 个琴键已对应${ready.mapped?' · 已核对':''}`;
+    for(const key of ['lights','piano','map']){
+      const step=$(`setup-step-${key}`),done=key==='map'?ready.mapped:ready[key];
+      step.dataset.done=String(done);step.dataset.current=String(ready.next===key);
+      if(ready.next===key)step.setAttribute('aria-current','step');else step.removeAttribute('aria-current');
+    }
+    $('piano-connection-card').dataset.connected=String(ready.piano);
+    document.querySelector('.serial-card').dataset.connected=String(ready.lights);
+  }
+  function focusPreparation(target){
+    if(target==='map'){$('settings-panel').open=true;$('key-calibration').scrollIntoView({behavior:'smooth',block:'center'});$('calibration-pitch').focus({preventScroll:true});}
+    else if(target==='lights'){document.querySelector('.serial-card').scrollIntoView({behavior:'smooth',block:'center'});$('serial-port').focus({preventScroll:true});refreshPorts(false);}
+    else {$('piano-connection-card').scrollIntoView({behavior:'smooth',block:'center'});$('midi-ble-connect').focus({preventScroll:true});}
   }
   function installWorkspace(){
     document.addEventListener('click',event=>{
       const button=event.target.closest('[data-open-view]');if(button)navigateWorkspace(button.dataset.openView);
+      const step=event.target.closest('[data-setup-target]');if(step)focusPreparation(step.dataset.setupTarget);
+      if(event.target.closest('[data-add-song]')){const panel=$('add-song-panel');panel.open=true;panel.scrollIntoView({behavior:'smooth',block:'start'});$('song-query').focus({preventScroll:true});}
+      if(!event.target.closest('.practice-tools')){
+        $('practice-options').open=false;document.querySelector('.phrase-practice > details')?.removeAttribute('open');
+      }
+    });
+    $('setup-next-action').addEventListener('click',()=>{
+      const next=preparationState().next;
+      if(next==='practice')navigateWorkspace('practice');
+      else if(next==='piano')$('midi-ble-connect').click();
+      else if(next==='lights'&&$('serial-port').value)$('connect-button').click();
+      else focusPreparation(next);
     });
     window.addEventListener('hashchange',()=>navigateWorkspace(location.hash.slice(1)));
-    for(const id of ['midi-feedback','midi-connection-status','device-title']){
+    for(const id of ['midi-feedback','midi-connection-status','device-title','mapping-badge']){
       new MutationObserver(refreshWorkspace).observe($(id),{childList:true,subtree:true,attributes:true,attributeFilter:['data-state']});
     }
     new MutationObserver(()=>{
@@ -1276,7 +1351,7 @@
   const $=id=>document.getElementById(id);
   const section=document.createElement('section');section.className='sidebar-section piano-library';
   section.setAttribute('aria-label','已转换曲谱曲库');
-  section.innerHTML='<div class="library-heading"><h2>我的曲库</h2><button type="button" class="text-button" id="library-refresh">刷新</button></div><p class="setting-help" id="library-status" role="status">正在读取已转换的曲谱…</p><div id="library-list"></div>';
+  section.innerHTML='<div class="library-heading"><h2>选择一首，开始练习</h2><button type="button" class="text-button" id="library-refresh">刷新</button></div><p class="setting-help" id="library-status" role="status">正在读取曲谱…</p><div id="library-list"></div>';
   $('library-saved').append(section);
   const database=new Promise((resolve,reject)=>{
     const opening=indexedDB.open('piano-light-library-v1',1);
@@ -1326,15 +1401,17 @@
       const title=document.createElement('strong');title.textContent=project.title||'未命名练习';
       const detail=document.createElement('small'),seconds=Math.max(0,Math.round(project.duration||0));
       detail.textContent=`${project.notes.length} 音符 · ${Math.round(project.bpm||90)} 拍/分钟 · ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
-      button.append(title,detail);button.onclick=()=>open(id).catch(showError);$('library-list').append(button);
+      const action=document.createElement('span');action.className='library-start';action.innerHTML='开始练习<svg class="icon"><use href="#i-arrow"/></svg>';
+      button.append(title,detail,action);button.onclick=()=>open(id).catch(showError);$('library-list').append(button);
     }
     if(!entries.length){
+      $('add-song-panel').open=true;
       const empty=document.createElement('div');empty.className='library-empty';
       empty.innerHTML='<svg class="icon"><use href="#i-library"/></svg><strong>还没有曲目</strong><p>添加一首曲子，或先试试示例。</p><button class="button tonal" type="button">试试示例曲</button>';
       empty.querySelector('button').onclick=()=>$('demo-button').click();$('library-list').append(empty);
     }
     delete $('library-status').dataset.state;$('library-refresh').textContent='刷新';
-    $('library-status').textContent=entries.length?`${entries.length} 首曲目 · 选择一首，开始练习`:'已转换的曲谱会保存在这台电脑的浏览器中。';
+    $('library-status').textContent=entries.length?`${entries.length} 首曲目`:'已转换的曲谱会保存在这台电脑的浏览器中。';
     return entries;
   }
   async function open(id){
@@ -1574,6 +1651,7 @@
   }
   function render(){
     const list=$('list');list.replaceChildren();
+    panel.querySelector('summary').textContent=active<0?'分段练习':`分段练习 · 第 ${active+1} 段`;
     analysis.sections.forEach((section,index)=>{
       const button=document.createElement('button');button.type='button';button.className='phrase-item';
       button.dataset.phrase=index;button.setAttribute('aria-pressed',String(active===index));
@@ -1586,7 +1664,7 @@
     $('occurrence').hidden=active<0||analysis.sections[active].occurrences.length<2;
     $('whole').disabled=active<0;
     $('summary').textContent=analysis.sections.length?`自动整理为 ${analysis.sections.length} 个练习段；${analysis.repeated} 种重复乐句共出现 ${analysis.occurrences} 次。${analysis.cached?'已读取分析结果。':''}`:'';
-    $('current').textContent=active<0?'选一段后点“3 秒后开始”或“立即开始”，熟练后点“下一段”。':`正在练第 ${active+1}/${analysis.sections.length} 段${analysis.sections[active].occurrences.length>1?`，第 ${occurrenceIndex+1} 处出现位置`:''}；本段循环，熟练后点“下一段”。`;
+    $('current').textContent=active<0?'':`第 ${active+1}/${analysis.sections.length} 段循环中${analysis.sections[active].occurrences.length>1?` · 第 ${occurrenceIndex+1} 处重复`:''}`;
     $('source').textContent=analysis.engine?`识别引擎：loop-miner · ${analysis.meter} 拍。${(analysis.warnings||[]).join('')}`:'';
   }
   function firstPlayable(range){
@@ -1640,7 +1718,7 @@
   }
   function install(){
     panel=document.createElement('section');panel.className='phrase-practice';panel.setAttribute('aria-label','自动分段练习');
-    panel.innerHTML='<details><summary>分段练习 · 从一小段开始</summary><p class="setting-help" id="phrases-summary" role="status"></p><button type="button" class="button secondary" id="phrases-retry" hidden>重试分析</button><div id="phrases-list" class="phrase-list"></div><div class="phrase-actions"><button type="button" class="button secondary" id="phrases-prev">上一段</button><button type="button" class="button primary" id="phrases-next">下一段</button><button type="button" class="button secondary" id="phrases-occurrence" hidden>换一处重复位置</button><button type="button" class="button subtle" id="phrases-whole">练整首</button></div><p class="setting-help" id="phrases-current" aria-live="polite"></p><details class="analysis-detail"><summary>查看分段分析说明</summary><p class="setting-help" id="phrases-source"></p></details></details>';
+    panel.innerHTML='<details><summary>分段练习</summary><p class="setting-help" id="phrases-summary" role="status"></p><button type="button" class="button secondary" id="phrases-retry" hidden>重试分析</button><div id="phrases-list" class="phrase-list"></div><div class="phrase-actions"><button type="button" class="button secondary" id="phrases-prev">上一段</button><button type="button" class="button primary" id="phrases-next">下一段</button><button type="button" class="button secondary" id="phrases-occurrence" hidden>换一处重复位置</button><button type="button" class="button subtle" id="phrases-whole">练整首</button></div><p class="setting-help" id="phrases-current" aria-live="polite"></p><details class="analysis-detail"><summary>查看分段分析说明</summary><p class="setting-help" id="phrases-source"></p></details></details>';
     core('phrase-slot').append(panel);
     $('prev').onclick=()=>select(active-1);$('next').onclick=()=>select(active+1);
     $('occurrence').onclick=()=>select(active,(occurrenceIndex+1)%analysis.sections[active].occurrences.length);

@@ -26,6 +26,11 @@ HTML = b'''<table class="table-bordered result-table">
 
 
 class MidiSourcesTests(unittest.TestCase):
+    def setUp(self):
+        provider = patch.object(sources, '_ichigo_search', return_value=[])
+        provider.start()
+        self.addCleanup(provider.stop)
+
     def test_chinese_aliases_translate_queries_not_results(self):
         terms, used = sources._query_variants('贝多芬 致爱丽丝')
         self.assertEqual(terms, ['Beethoven Fur Elise'])
@@ -150,6 +155,31 @@ class MidiSourcesTests(unittest.TestCase):
             self.assertEqual(result['midi_header']['tracks'], 1)
             self.assertEqual(len(list(Path(directory).iterdir())), 1)
             self.assertTrue(messages)
+
+
+class ExpandedCatalogTests(unittest.TestCase):
+    def test_local_title_matches_translated_names(self):
+        for query in ('summer', '菊次郎的夏天', '菊次郎之夏', '久石让 Summer'):
+            self.assertTrue(sources.matches_local_title(query, '久石譲 - Summer'), query)
+            self.assertTrue(sources.matches_local_title(query, 'Summer'), query)
+        self.assertFalse(sources.matches_local_title('Summer', 'Madoka Summer Time'))
+        self.assertFalse(sources.matches_local_title('菊次郎的夏天', 'Night Cruising'))
+
+    def test_anime_catalog_uses_real_midi_link_and_solo_instrument(self):
+        html = '''<span class="title2"><a href="/sheets/374">Kikujiro</a></span><br><br>
+Summer (full version) (Transcribed by illinattta)<br><i>for Piano</i> |
+<a href="/res/getfile.php?id=4645&type=midi&token=current">midi</a> | <br><br>
+Summer (Transcribed by someone)<br><i>for Piano and Flute</i> |
+<a href="/res/getfile.php?id=999&type=midi&token=other">midi</a>'''.encode()
+        with patch.object(sources, '_fetch', return_value=(html, 'https://ichigos.com/sheets')) as fetch:
+            result = sources._ichigo_search('Summer', ['Summer'], ['菊次郎的夏天'], '菊次郎的夏天')
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['title'], 'Summer (full version)')
+        self.assertEqual(result[0]['work'], 'Kikujiro')
+        self.assertEqual(result[0]['composer'], 'Joe Hisaishi')
+        self.assertEqual(result[0]['page_url'], 'https://ichigos.com/sheets/374')
+        self.assertIn('token=current', result[0]['midi_url'])
+        self.assertIn(b'qtitle=Summer', fetch.call_args.args[2])
 
 
 if __name__ == '__main__':

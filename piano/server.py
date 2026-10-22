@@ -241,7 +241,7 @@ def process_midi_search(job_id, query, directory, options):
         notes, bpm, extra = read_midi(Path(found["path"]).read_bytes())
         set_job(job_id, message="已下载 MIDI，正在自动分配双手指法和灯色…")
         source = {"kind": "midi-search", "query": query,
-                  **{key: str(found.get(key, "")) for key in ("provider", "license", "page_url", "midi_url", "composer")}}
+                  **{key: str(found.get(key, "")) for key in ("provider", "license", "license_url", "page_url", "midi_url", "composer", "work", "transcriber")}}
         project = build_project(notes, title=found["title"], bpm=bpm,
                                 hand_size=options.get("hand_size", "M"),
                                 source=source, transcription={"engine": "在线 MIDI / Mido", **extra})
@@ -409,6 +409,10 @@ class Handler(BaseHTTPRequestHandler):
                 query_text = str(request.get("query", "")).strip()
                 if not 1 <= len(query_text) <= 120 or any(ord(c) < 32 for c in query_text):
                     raise ValueError("请输入 1–120 字的曲名。")
+                from .midi_sources import matches_local_title
+                for entry in library_entries():
+                    if matches_local_title(query_text, entry["title"]):
+                        return self.send(200, {"project": load_library_project(entry["id"]), "local": True})
                 if not IMPORT_LOCK.acquire(blocking=False):
                     return self.send(409, {"error": "正在生成另一首练习，请等待完成。"})
                 try:

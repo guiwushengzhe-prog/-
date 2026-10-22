@@ -75,9 +75,11 @@ FastLED (https://github.com/FastLED/FastLED) and ArduinoJson (https://github.com
 
 PRamoneda/Automatic-Piano-Fingering (MIT research implementation), ByteDance piano_transcription and qiuqiangkong/piano_transcription_inference (separate code/model provenance), Chirality (AGPL with separate statistical-data considerations), onlaj/Piano-LED-Visualizer (MIT), serifpersia/pianolux-esp32 (MIT) and tiefenb/piano-vision-automatic-fingering-assignment (MIT) were reviewed as alternatives. No source code or pretrained weights from these projects is distributed here. A short upstream piano recording was used only in local validation and is excluded from deliverables.
 
-## Online score search
+## 在线曲谱搜索
 
-`piano/midi_sources.py` is original standard-library provider code. It searches the official Mutopia website and preserves each score's title, composer, source URL and individual license. No website source code is copied. Individual downloaded scores keep their own licenses; the application's MIT license does not relicense music files. Only original synthetic audio is shipped as a test example; downloaded real performance evaluation audio/MIDI and cached search downloads are excluded from the application source archive.
+`piano/midi_sources.py` 使用原创标准库代码接入 [Mutopia Project](https://www.mutopiaproject.org/) 和 [Ichigo's Sheet Music](https://ichigos.com/search)，没有复制网站程序。后者扩展动漫与影视钢琴曲目，按其公开搜索表单取得当次有效的下载链接，只选择页面明确标记的钢琴独奏。
+
+每首曲谱保留曲名、作曲者、原作、整理者、来源页面、下载地址及逐曲许可。Ichigo's 页面没有注明开放许可的曲目明确记录“来源网站未注明开放许可”，不以应用的 MIT 许可替代乐曲权利。仅原创合成示例音频随源码提供；下载的曲谱、演奏验证音频及缓存均不进入源码发布包。真实接入验证使用其 [《菊次郎之夏》曲谱页面](https://ichigos.com/sheets/374)。
 
 ## 标题手写字体
 
