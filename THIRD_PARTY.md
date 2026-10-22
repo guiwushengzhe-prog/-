@@ -77,9 +77,9 @@ PRamoneda/Automatic-Piano-Fingering (MIT research implementation), ByteDance pia
 
 ## 在线曲谱搜索
 
-`piano/midi_sources.py` 使用原创标准库代码接入 [Mutopia Project](https://www.mutopiaproject.org/) 和 [Ichigo's Sheet Music](https://ichigos.com/search)，没有复制网站程序。后者扩展动漫与影视钢琴曲目，按其公开搜索表单取得当次有效的下载链接，只选择页面明确标记的钢琴独奏。
+`piano/midi_sources.py` 使用原创代码接入 [Mutopia Project](https://www.mutopiaproject.org/)、[Ichigo's Sheet Music](https://ichigos.com/search)、[8notes](https://www.8notes.com/)、[MIDIWorld](https://www.midiworld.com/) 及 [MIDI Collection](https://midicollection.com/)，没有复制网站程序。通过公开搜索表单取得结果；Ichigo's 与8notes只选页面标记为钢琴独奏的版本。MIDIWorld及MIDI Collection为综合乐器档案，候选下载后另用已安装的Mido读取实际发声乐器，只有全部音符使用钢琴音色且不含打击乐的文件才进入练习，不把乐队合奏所有声部强行当作钢琴独奏。
 
-每首曲谱保留曲名、作曲者、原作、整理者、来源页面、下载地址及逐曲许可。Ichigo's 页面没有注明开放许可的曲目明确记录“来源网站未注明开放许可”，不以应用的 MIT 许可替代乐曲权利。仅原创合成示例音频随源码提供；下载的曲谱、演奏验证音频及缓存均不进入源码发布包。真实接入验证使用其 [《菊次郎之夏》曲谱页面](https://ichigos.com/sheets/374)。
+每首曲谱保留来源提供的曲名、作者、原作、整理者、来源页面、下载地址及逐曲许可；网站未注明的字段不猜测补齐。未确认开放许可的曲目明确记录“来源网站未注明开放许可”，不以应用的 MIT 许可替代乐曲权利。仅原创合成示例音频随源码提供；下载的曲谱、演奏验证音频及缓存均不进入源码发布包。真实接入验证包括 [Ichigo's《菊次郎之夏》曲谱页面](https://ichigos.com/sheets/374)、[8notes《D大调卡农》钢琴版](https://www.8notes.com/scores/7351.asp) 及两个综合曲库的公开文件。
 
 ## 标题手写字体
 

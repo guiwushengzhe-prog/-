@@ -62,7 +62,7 @@ py -3.11 -m venv .venv
 
 ## 自动处理范围
 
-- 曲名搜索：优先读取本机已转换曲谱，支持“菊次郎的夏天／菊次郎之夏／Summer”等别名。在线来源包括 [Ichigo's 动漫与影视曲谱](https://ichigos.com/search) 和 [Mutopia 古典曲谱](https://www.mutopiaproject.org/)，仅选取匹配的钢琴独奏及可下载乐器音符文件。已实际完成《Summer》的在线下载、指法生成与入库流程；不保证覆盖所有流行歌曲。逐曲保留来源及许可说明，下载曲谱不随源码发布。
+- 曲名搜索：优先读取本机已转换曲谱，支持“卡农／Canon in D”“菊次郎的夏天／菊次郎之夏／Summer”等别名。并行搜索五个在线来源：[Mutopia 古典曲谱](https://www.mutopiaproject.org/)、[Ichigo's 动漫与影视曲谱](https://ichigos.com/search)、[8notes 曲谱](https://www.8notes.com/)、[MIDIWorld 综合曲库](https://www.midiworld.com/)、[MIDI Collection 综合曲库](https://midicollection.com/)。优先匹配钢琴独奏；综合曲库下载后实际检查发声乐器，排除乐队合奏和打击乐，失效链接自动换源。已实际完成《Summer》和帕赫贝尔《D大调卡农》的在线下载、指法生成与入库流程；不保证覆盖所有流行歌曲。逐曲保留来源及许可说明，下载曲谱不随源码发布。
 - NCM：通过 MIT 开源 `ncmdump-local` 核心在本地提取内层音频；内层已是 MP3 时保留音频字节，FLAC 等格式通过本地 FFmpeg 实际转码为 MP3，然后自动转谱。源文件保留；完成后可下载转换的 MP3。
 - MP3、WAV、FLAC、OGG：本机 CPU 自动转谱，单文件上限 64 MB、10 分钟。
 - MIDI：直接读取音符和变速事件，最长 15 分钟，最多 20000 个钢琴音域音符。忽略打击乐通道，保留原始秒级时间；不支持独立轨道时间的 type 2。
