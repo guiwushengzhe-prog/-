@@ -436,7 +436,7 @@
   }
   function resetMidiJudgement() {
     state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';state.midiGroupAttack=false;
-    state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'';
+    state.midiFeedback='';
     renderMidiJudgement();
   }
   function matchHeldMidiPitches(expected=midiExpectedPitches()) {
@@ -446,11 +446,11 @@
     return expected.filter(pitch=>!held.has(pitch));
   }
   function judgeMidiPitch(pitch,released=false) {
-    const pressed=`${pitchName(pitch)}（音符编号 ${pitch}）`;
+    const pressed=pitchName(pitch);
     if(window.PianoLightCalibration?.active)return;
-    if(state.mode==='correct'&&!state.playing){setMidiFeedback(`检测到 ${pressed}；点击「3 秒后开始」或「立即开始」后，弹对当前音组自动推进。`,'help');return;}
+    if(state.mode==='correct'&&!state.playing){setMidiFeedback(`${pressed} · 点“立即开始”练习`,'help');return;}
     const expected=midiExpectedPitches();
-    if(!expected.length) { setMidiFeedback(`检测到 ${pressed}；当前音组在所选手别下没有音符，请调整左手／右手筛选。`,'help');return; }
+    if(!expected.length) { setMidiFeedback('当前手别没有音符，请切换手别。','help');return; }
     const remaining=matchHeldMidiPitches(expected);
     if(!released&&expected.includes(pitch))state.midiGroupAttack=true;
     const time=state.project.groups[state.groupIndex].time;
@@ -461,17 +461,17 @@
       if(note.start>=time-.001)break;
       if(selected(note)&&note.start<time-.001&&note.end>time+.001)extra.delete(note.pitch);
     }
-    if(extra.size){setMidiFeedback(`请松开多按的 ${[...extra].map(pitchName).join('、')}。目标音必须同时按住。`,'wrong');return;}
+    if(extra.size){setMidiFeedback(`请松开多按的 ${[...extra].map(pitchName).join('、')}`,'wrong');return;}
     if(expected.includes(pitch)||released) {
       if(!remaining.length&&state.midiGroupAttack) {
         if(state.mode==='correct'&&state.playing){
           step(1);
-          if(!state.playing)setMidiFeedback('正确！这一段练习已完成。','correct');
-        }else setMidiFeedback(`正确！本组 ${expected.length} 个不同音高已同时按住，按「下一组」继续。`,'correct');
+          if(!state.playing)setMidiFeedback('本段完成','correct');
+        }else setMidiFeedback('本组正确 · 下一组 →','correct');
       }
-      else setMidiFeedback(remaining.length?`当前同时按住 ${state.midiMatched.size}/${expected.length} 个音，还需同时按住 ${remaining.map(pitchName).join('、')}。`:'请重新弹奏当前音组。','help');
+      else setMidiFeedback(remaining.length?`已按 ${state.midiMatched.size}/${expected.length} · 还需同时按住 ${remaining.map(pitchName).join('、')}`:'请重新弹奏当前音组。','help');
     } else {
-      setMidiFeedback(`弹错 ${pressed}；当前组需要 ${expected.map(pitchName).join('、')}。`,'wrong');
+      setMidiFeedback(`${pressed} 不在本组 · 需要 ${expected.map(pitchName).join('、')}`,'wrong');
     }
   }
   function setMidiConnection(message,type='') {
@@ -514,7 +514,7 @@
       if(!window.PianoLightCalibration?.active&&(state.mode!=='correct'||state.playing)){
         if(wasHeld){judgeMidiPitch(pitch,true);return;}
         const expected=midiExpectedPitches(),remaining=matchHeldMidiPitches(expected);
-        if(expected.length&&remaining.length)setMidiFeedback(`当前同时按住 ${state.midiMatched.size}/${expected.length} 个音，还需同时按住 ${remaining.map(pitchName).join('、')}。`,'help');
+        if(expected.length&&remaining.length)setMidiFeedback(`已按 ${state.midiMatched.size}/${expected.length} · 还需同时按住 ${remaining.map(pitchName).join('、')}`,'help');
         else renderMidiJudgement();
       }
       return;
@@ -696,7 +696,7 @@
   function updateScoreCurrent(autoscroll=true) {
     if(state.midiJudgedGroup!==state.groupIndex) {
       state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';state.midiGroupAttack=false;
-      state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'';
+      state.midiFeedback='';
     }
     renderMidiJudgement();
     if(state.renderedCurrent===state.groupIndex&&!autoscroll)return;
@@ -821,8 +821,6 @@
     for(const id of ['play-button','start-now','prev-button','next-button'])if($(id))$(id).disabled=adapting;
     if($('start-now'))$('start-now').hidden=state.playing||needsPiano;
     $('play-label').setAttribute('aria-live','polite');
-    $('mode-hint').textContent=state.mode==='correct'?'和弦需同时按住，弹对后进入下一组。':state.mode==='manual'?'弹完后按 → 或点击下一组。':`灯光提前 ${state.lookahead.toFixed(2)} 秒提示。`;
-    $('mode-hint').hidden=state.mode==='timed';
     $('speed-range').disabled=state.mode!=='timed';
     $('speed-control')?.classList.toggle('disabled',state.mode!=='timed');
     $('loop-button').classList.toggle('active',state.loop);$('loop-button').setAttribute('aria-pressed',String(state.loop));
@@ -1332,7 +1330,7 @@
       const body=new Blob([JSON.stringify({pixels:[],brightness:config.brightness})],{type:'application/json'});
       navigator.sendBeacon('/api/serial/frame',body);
     });
-    window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{renderKeyboard();renderScore();updateActive(true);},150);});
+    window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{renderKeyboard();renderScore(true);updateActive(true);},150);});
   }
   function navigateWorkspace(view,focus=true){
     if(!['practice','library','devices'].includes(view))return;
@@ -1360,9 +1358,9 @@
     const feedback=$('practice-feedback'),target=$('practice-midi-feedback');
     feedback.dataset.state=state.mode==='correct'?state.midiFeedbackType:'';
     if(state.countdown)target.textContent=`准备好，${state.countdown} 秒后开始。`;
-    else if(state.mode==='correct')target.textContent=piano?state.midiFeedback:'弹对推进需要连接钢琴；和弦要同时按住，本模式不播放伴奏。';
-    else target.textContent=state.mode==='manual'?'看灯弹奏，按 → 推进。':'按设定速度跟练。';
-    feedback.hidden=state.mode!=='correct';
+    else if(state.mode==='correct')target.textContent=piano?state.midiFeedback:'连接钢琴后，弹对推进';
+    else target.textContent='';
+    feedback.hidden=state.mode!=='correct'||!target.textContent;
     feedback.querySelector('.text-button').hidden=piano||state.mode!=='correct';
     renderPreparation();
   }
