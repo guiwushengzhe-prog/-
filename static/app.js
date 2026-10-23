@@ -370,7 +370,7 @@
     $('loop-start').value='0';$('loop-end').value=String(Number(project.duration.toFixed(1)));
     $('loop-start').max=$('loop-end').max=String(project.duration);
     restorePracticeProgress(project);
-    renderLegend();renderScore();renderProjectInfo();updateClock(true);updateActive(true);renderTransport();
+    renderLegend();renderScore(true);renderProjectInfo();updateClock(true);updateActive(true);renderTransport();
     savePracticeProgress(true);
     if (notify) toast(`已生成 ${project.groups.length} 组练习，简谱、指法与灯光已同步。`,'success');
     window.dispatchEvent(new CustomEvent('piano-project-loaded',{detail:project}));
@@ -665,7 +665,7 @@
     const rhythm=under?`under-${under}`:'';
     return `<span class="numbered-note ${rhythm}" title="${escapeHTML(pitchName(note.pitch))} · ${Number(beats.toFixed(2))} 拍"><span class="octave-dots">${octave>0?'·'.repeat(octave):'&nbsp;'}</span><span class="note-value">${accidentals?`<span class="accidental">${escapeHTML(accidentals)}</span>`:''}${escapeHTML(number)}${extension?`<span class="extension">${extension}</span>`:''}${dot?'<span class="duration-dot">·</span>':''}</span><span class="octave-dots">${octave<0?'·'.repeat(-octave):'&nbsp;'}</span></span>`;
   }
-  function renderScore() {
+  function renderScore(autoscroll=false) {
     renderMappedOnlySummary();
     const groups=state.project?.groups || [];
     const start=state.scorePage*PAGE_SIZE,end=Math.min(groups.length,start+PAGE_SIZE);
@@ -690,7 +690,7 @@
     $('score-range').textContent=`${start+1}–${end} / ${groups.length} 组`;
     $('score-page-prev').disabled=start===0;$('score-page-next').disabled=end===groups.length;
     state.renderedCurrent=-1;
-    updateScoreCurrent(false);
+    updateScoreCurrent(autoscroll);
   }
   function updateScoreCurrent(autoscroll=true) {
     if(state.midiJudgedGroup!==state.groupIndex) {
@@ -698,7 +698,7 @@
       state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'';
     }
     renderMidiJudgement();
-    if(state.renderedCurrent===state.groupIndex)return;
+    if(state.renderedCurrent===state.groupIndex&&!autoscroll)return;
     const previous=scoreElements.get(state.renderedCurrent);
     if(previous) { previous.classList.remove('current');previous.removeAttribute('aria-current'); }
     if(autoscroll && !scoreElements.has(state.groupIndex)) { state.scorePage=Math.floor(state.groupIndex/PAGE_SIZE);renderScore();return; }
@@ -710,7 +710,8 @@
         const scroller=$('score-scroll');
         const left=current.offsetLeft-scroller.offsetLeft;
         if(left<scroller.scrollLeft+10 || left+current.offsetWidth>scroller.scrollLeft+scroller.clientWidth-10) {
-          scroller.scrollTo({left:Math.max(0,left-scroller.clientWidth/2+current.offsetWidth/2),behavior:'smooth'});
+          const behavior=state.playing&&Math.abs(left-scroller.scrollLeft)<scroller.clientWidth?'smooth':'instant';
+          scroller.scrollTo({left:Math.max(0,left-scroller.clientWidth/2+current.offsetWidth/2),behavior});
         }
       }
     }
@@ -809,12 +810,14 @@
   }
   function renderTransport() {
     renderAccompaniment();
+    const adapting=!!window.PianoKeyAdaptation?.busy;
     const preparing=state.countdown>0;
     const needsPiano=state.mode==='correct'&&!state.midiInput&&!state.midiBleConnection;
-    $('play-label').textContent=preparing?`${state.countdown} 秒后开始 · 点此取消`:state.playing?'暂停练习':needsPiano?'连接钢琴再开始':'3 秒后开始';
+    $('play-label').textContent=adapting?'正在适配琴键…':preparing?`${state.countdown} 秒后开始 · 点此取消`:state.playing?'暂停练习':needsPiano?'连接钢琴再开始':'3 秒后开始';
     $('play-icon').querySelector('use').setAttribute('href',state.playing?'#i-pause':'#i-play');
     $('play-button').classList.toggle('is-playing',state.playing);
-    $('play-button').setAttribute('aria-label',preparing?'取消开始倒计时':state.playing?'暂停练习':needsPiano?'连接钢琴再开始':'3 秒后开始');
+    $('play-button').setAttribute('aria-label',adapting?'正在适配琴键':preparing?'取消开始倒计时':state.playing?'暂停练习':needsPiano?'连接钢琴再开始':'3 秒后开始');
+    for(const id of ['play-button','start-now','prev-button','next-button'])if($(id))$(id).disabled=adapting;
     if($('start-now'))$('start-now').hidden=state.playing||needsPiano;
     $('play-label').setAttribute('aria-live','polite');
     $('mode-hint').textContent=state.mode==='correct'?'和弦需同时按住，弹对后进入下一组。':state.mode==='manual'?'弹完后按 → 或点击下一组。':`灯光提前 ${state.lookahead.toFixed(2)} 秒提示。`;
@@ -852,7 +855,7 @@
     savePracticeProgress(true);
   }
   function play(ready=false,immediate=false) {
-    if(!state.project)return;
+    if(!state.project||window.PianoKeyAdaptation?.busy)return;
     if(state.playing || state.countdown){pause();return;}
     if(window.PianoLightCalibration?.active)return;
     if(document.hidden)return;
@@ -1345,7 +1348,7 @@
     if(location.hash!==`#${view}`)history.replaceState(null,'',`#${view}`);
     $('export-menu').open=false;
     if(focus){document.querySelector(`#${view}-view h1`)?.focus({preventScroll:true});window.scrollTo({top:0,behavior:'instant'});}
-    if(view==='practice')requestAnimationFrame(()=>{renderKeyboard();renderScore();updateActive(true);});
+    if(view==='practice')requestAnimationFrame(()=>{renderKeyboard();renderScore(true);updateActive(true);});
     refreshWorkspace();
   }
   function refreshWorkspace(){
@@ -1401,7 +1404,9 @@
       const button=event.target.closest('[data-open-view]');if(button)navigateWorkspace(button.dataset.openView);
       const step=event.target.closest('[data-setup-target]');if(step)focusPreparation(step.dataset.setupTarget);
       if(event.target.closest('[data-add-song]')){const panel=$('add-song-panel');panel.open=true;panel.scrollIntoView({behavior:'smooth',block:'start'});$('song-query').focus({preventScroll:true});}
-      if(!event.target.closest('.practice-tools')){
+      // 分段重绘会移除被点击按钮，仍按原始点击路径判断是否来自面板内部。
+      const fromTools=event.composedPath().some(node=>node.classList?.contains('practice-tools'));
+      if(!fromTools&&(event.isTrusted||event.target.closest('#play-button,#start-now'))){
         $('practice-options').open=false;document.querySelector('.phrase-practice > details')?.removeAttribute('open');
       }
     });
@@ -1449,6 +1454,7 @@
   window.PianoStartupReconnect={retry:reconnectDevices};
   window.PianoWorkspace={navigate:navigateWorkspace};
   window.PianoFingerColors={set:setFiveColors,setMode:setColorMode,colorFor,get enabled(){return state.colorMode==='five';},get mode(){return state.colorMode;},palette:fiveFingerColors.slice()};
+  window.addEventListener('piano-key-adaptation-state',renderTransport);
   window.addEventListener('piano-calibration-saved',()=>{
     config=readConfig();populateCalibration();renderKeyboard();renderScore();updateActive(true);
   });
@@ -1641,6 +1647,7 @@
     return {original,available,notes:notes.sort((a,b)=>a.start-b.start||a.pitch-b.pitch),stats};
   }
   let mode='original',original=null,revision=0,busy=false,lastStats=null,cached=null;
+  function setBusy(value){busy=value;window.dispatchEvent(new Event('piano-key-adaptation-state'));}
   function config(){return JSON.parse(localStorage.getItem('piano-light-studio-calibration-v1')||'{}');}
   function summary(){
     const output=$('key-adaptation-summary');if(!output)return;
@@ -1665,7 +1672,7 @@
     const time=preserve?(current.groups[index]?.time||0):0;
     const running=$('play-button').classList.contains('is-playing');
     if(running)$('play-button').click();
-    $('key-adaptation-mode').value=mode;$('key-adaptation-mode').disabled=true;busy=true;summary();
+    $('key-adaptation-mode').value=mode;$('key-adaptation-mode').disabled=true;setBusy(true);summary();
     try{
       if(next==='nearest'){
         const prepared=transform(base,config());
@@ -1691,14 +1698,14 @@
       }
       if(ticket!==revision)return;
       const timeline=$('timeline');timeline.value=String(time);timeline.dispatchEvent(new Event('input',{bubbles:true}));
-      if(running&&!$('play-button').classList.contains('is-playing'))$('play-button').click();
       $('score-grid').dispatchEvent(new MouseEvent('click',{bubbles:true}));
       localStorage.setItem(storageKey,mode);
+      if(running&&!$('play-button').classList.contains('is-playing')){setBusy(false);$('play-button').click();}
     }catch(error){
       if(ticket===revision){mode=oldMode;$('key-adaptation-mode').value=mode;filter(mode==='omit');}
       throw error;
     }finally{
-      if(ticket===revision){busy=false;$('key-adaptation-mode').disabled=false;summary();}
+      if(ticket===revision){setBusy(false);$('key-adaptation-mode').disabled=false;summary();}
     }
   }
   function showError(error){$('key-adaptation-summary').textContent=error.message;}
@@ -1713,7 +1720,7 @@
     $('key-adaptation-mode').value=mode;
     $('key-adaptation-mode').onchange=event=>setMode(event.target.value).catch(showError);
     document.addEventListener('click',event=>{
-      if(busy&&event.isTrusted&&event.target.closest('#play-button,#prev-button,#next-button,#score-grid .score-group')){event.preventDefault();event.stopImmediatePropagation();}
+      if(busy&&event.isTrusted&&event.target.closest('#play-button,#start-now,#prev-button,#next-button,#score-grid .score-group')){event.preventDefault();event.stopImmediatePropagation();}
     },true);
     document.addEventListener('keydown',event=>{
       if(busy&&event.isTrusted&&['Space','ArrowRight','ArrowLeft','Home'].includes(event.code)){event.preventDefault();event.stopImmediatePropagation();}

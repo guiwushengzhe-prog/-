@@ -35,4 +35,7 @@ startImmediately();assert.equal(state.playing,true,'立即开始不等待');asse
 assert.equal(state.time,0,'立即开始不能额外等待预亮时间');
 pause();play();advance(1000);startImmediately();assert.equal(state.playing,true,'倒计时期间可以改为立即开始');assert.equal(timers.size,0);
 pause();advance(4000);assert.equal(state.playing,false,'切换立即开始后不能残留旧倒计时');
-console.log('开始方式：3/2/1、立即开始、倒计时中改立即开始、取消、跳转、未连接提示与准备期间不推进检查通过。');
+window.PianoKeyAdaptation.busy=true;
+play();startImmediately();assert.equal(state.playing,false,'琴键适配中不能开始播放旧谱');assert.equal(state.countdown,0);
+window.PianoKeyAdaptation.busy=false;startImmediately();assert.equal(state.playing,true,'适配结束后立即开始恢复可用');pause();
+console.log('开始方式：3/2/1、立即开始、倒计时中改立即开始、取消、跳转、未连接提示、适配期间禁止旧谱播放与准备期间不推进检查通过。');
