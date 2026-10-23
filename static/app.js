@@ -26,6 +26,7 @@
   let startupSerialCancelled = false;
   let startupMidiCancelled = false;
   let serialGeneration = 0;
+  let serialPending = false;
   let lastMidiInputId = null;
   let accompaniment = null;
   const LAST_SERIAL_KEY = 'piano-light-last-serial-v1';
@@ -788,6 +789,7 @@
     const signature=notes.map(note=>`${String(note.id ?? `test-${note.pitch}`)}${isPending(note)?'p':'a'}`).join(',')+`/${state.testUntil>performance.now()?state.testUntil:''}/${state.playing}`;
     if(!force && signature===state.activeSignature)return;
     state.activeSignature=signature;state.activeNotes=notes;
+    syncSerial();
     for(const element of keyElements.values()){element.classList.remove('lit','preview');element.style.removeProperty('--key-color');element.querySelector('.key-finger').textContent='';}
     for(const note of notes){
       const key=keyElements.get(note.pitch);
@@ -806,7 +808,6 @@
     $('live-notes').innerHTML=notes.length?notes.map(note=>`<span class="live-note ${isPending(note)?'pending':''}" style="--finger-color:${colorFor(note)}">${isPending(note)?'<span class="pending-label">预亮</span>':''}${escapeHTML(pitchName(note.pitch))}<span>${note.hand==='L'?'左':'右'}${note.finger}</span></span>`).join(''):(state.playing?'<span class="muted">等待下一组音符…</span>':'');
     $('playing-dot').classList.toggle('active',!!notes.length);
     $('live-status').textContent=state.testUntil>performance.now()?'灯珠测试':state.playing?(state.mode==='correct'?'等待弹对':state.mode==='manual'?'等待你推进':'跟灯弹奏'):state.time>0?'已暂停':'准备就绪';
-    syncSerial();
   }
   function renderTransport() {
     renderAccompaniment();
@@ -939,11 +940,11 @@
   }
   async function syncSerial() {
     if(window.PianoLightCalibration?.active)return;
-    if(!state.serialConnected || state.serialBusy)return;
+    if(!state.serialConnected)return;
+    if(state.serialBusy){serialPending=true;return;}
+    serialPending=false;
     const now=performance.now();
-    // Changed pictures get a 20 ms send opportunity. Clear bypasses throttling;
-    // while one request is in flight only the latest state is retained.
-    if(!state.serialForceClear&&now-state.serialLastSent<20)return;
+    // 变化立即发送；等待执行确认时只保留最新状态，不积压旧画面。
     const pixels=state.serialForceClear?[]:currentPixels(now);
     const frame={pixels,brightness:config.brightness};
     const signature=JSON.stringify(frame);
@@ -961,7 +962,7 @@
       $('serial-message').textContent=`灯带连接已中断：${error.message}`;
       toast(`灯带连接已中断：${error.message}`,'error');
       scheduleRecovery('serial');
-    } finally{state.serialBusy=false;if(state.serialForceClear&&state.serialConnected)syncSerial();}
+    } finally{state.serialBusy=false;if((serialPending||state.serialForceClear)&&state.serialConnected)syncSerial();}
   }
   function setDeviceState() {
     $('device-title').textContent=state.serialConnected?(state.serialInfo?.verified?'实物灯带已确认连接':'灯带串口已连接'):'灯带预览模式';
