@@ -104,7 +104,7 @@ class SerialLights:
             if not 0 <= p[0] < 512 or not all(0 <= v <= 255 for v in p[1:]):
                 raise ValueError("灯珠编号或颜色超出范围。")
             packed.append(p)
-        line = json.dumps({"type": "frame", "brightness": min(brightness, .35),
+        line = json.dumps({"type": "frame", "brightness": brightness,
                            "pixels": packed}, separators=(",", ":")).encode() + b"\n"
         with self.lock:
             if not self.port or not self.port.is_open:
@@ -114,7 +114,7 @@ class SerialLights:
             except Exception:
                 self._disconnect()
                 raise
-        return {"sent": len(packed), "brightness": min(brightness, .35)}
+        return {"sent": len(packed), "brightness": brightness}
 
 
 LIGHTS = SerialLights()

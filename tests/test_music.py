@@ -138,7 +138,7 @@ class FakePort:
 
 
 class SerialProtocolTests(unittest.TestCase):
-    def test_sparse_frame_caps_brightness_and_disconnect_clears(self):
+    def test_sparse_frame_passes_brightness_and_disconnect_clears(self):
         import json
         controller = SerialLights()
         port = FakePort()
@@ -147,7 +147,7 @@ class SerialProtocolTests(unittest.TestCase):
                           "brightness": .9})
         frame = json.loads(port.sent[-1])
         self.assertEqual(frame["pixels"], [[12, 255, 4, 0]])
-        self.assertEqual(frame["brightness"], .35)
+        self.assertEqual(frame["brightness"], .9)
         controller.disconnect()
         self.assertEqual(json.loads(port.sent[-1]), {"type": "clear"})
         self.assertFalse(port.is_open)

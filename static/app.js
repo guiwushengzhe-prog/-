@@ -175,7 +175,7 @@
         const indices = saved.mapping?.[pitch];
         mapping[pitch] = Array.isArray(indices) ? [...new Set(indices.filter(n => Number.isInteger(n) && n >= 0 && n < ledCount))] : [];
       }
-      return {firstPitch,keyCount,ledCount,mapping,brightness:clamp(finite(saved.brightness,0.15),0.01,0.35),lookahead:clamp(finite(saved.lookahead,0.4),0,1),confirmed:!!saved.confirmed};
+      return {firstPitch,keyCount,ledCount,mapping,brightness:clamp(finite(saved.brightness,0.15),0.01,1),lookahead:clamp(finite(saved.lookahead,0.4),0,1),confirmed:!!saved.confirmed};
     } catch (_) { return defaults; }
   }
   function persistConfig() {

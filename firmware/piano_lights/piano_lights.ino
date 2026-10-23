@@ -53,7 +53,7 @@ void applyLine(const String &line) {
     int index = value[0];
     pixels[index] = CRGB(value[1].as<int>(), value[2].as<int>(), value[3].as<int>());
   }
-  FastLED.setBrightness((uint8_t)(min(brightness, 0.35f) * 255));
+  FastLED.setBrightness((uint8_t)(brightness * 255));
   FastLED.show();
   lastFrame = millis();
   lit = !values.isNull() && values.size() > 0;
