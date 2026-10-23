@@ -29,6 +29,7 @@ api.play();assert.equal(scheduled.length,0,'倒计时不能提前发声');advanc
 assert.equal(scheduled.length,0);assert.equal(synth.live,false,'弹对推进关闭合成伴奏');
 assert.match(synth.description('correct'),/不播放伴奏/);
 api.handleMidiMessage({data:[0x90,61,90]});assert.equal(state.groupIndex,0);assert.equal(synth.live,false,'错音不能启动下一段');
+api.handleMidiMessage({data:[0x80,61,0]});
 api.handleMidiMessage({data:[0x90,60,90]});assert.equal(state.groupIndex,1);assert.equal(synth.live,false,'按对也不启动伴奏');assert.equal(scheduled.length,0);
 api.pause();state.mode='timed';state.time=0;api.play(true);assert.equal(synth.live,true);assert.ok(scheduled.length>0,'定速仍可播放合成伴奏');
 api.pause();assert.equal(synth.live,false);assert.ok(scheduled.every(x=>x.voice.stopped),'暂停清除已排定音符');

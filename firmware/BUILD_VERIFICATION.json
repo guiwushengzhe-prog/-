@@ -1,29 +1,77 @@
 {
-  "firmware_sha256": "c34692bf7d84ef79fbdc07d7f19ec926489d3e7bb902532ba50f427e2eba4171",
-  "core": "esp32:esp32@3.3.2",
+  "verified_at": "2026-10-23T15:11:04+08:00",
+  "firmware": "2.0.0",
+  "protocol": 2,
+  "firmware_sha256": "20cd0ec9c673552e30444efd67720599c067ec70cc9b2b99b3caff19a9bd6b19",
+  "core": "esp32:esp32@3.3.12",
   "libraries": {
     "FastLED": "3.10.3",
     "ArduinoJson": "7.4.2"
   },
-  "boards": [
-    "esp32:esp32:esp32c3",
-    "esp32:esp32:esp32s3"
-  ],
-  "arduino_cli": "1.5.2-rc.1 (fef6e48df)",
-  "firmware_sha256_after": "c34692bf7d84ef79fbdc07d7f19ec926489d3e7bb902532ba50f427e2eba4171",
-  "results": {
-    "c3": {
-      "exit_code": 0,
-      "summary": "Sketch uses 312850 bytes (23%) of program storage space. Maximum is 1310720 bytes.\nGlobal variables use 14184 bytes (4%) of dynamic memory, leaving 313496 bytes for local variables. Maximum is 327680 bytes.",
-      "binary_bytes": 312992,
-      "binary_sha256": "598b435b413639d2bb14c1d66b7d815ff22513d15041985c83120e9d32c9048e"
+  "arduino_cli": "1.5.1 (01f3d4f2b)",
+  "fqbn": "esp32:esp32:esp32s3:FlashSize=16M,PartitionScheme=default_8MB,FlashMode=qio,PSRAM=opi,CDCOnBoot=default,UploadSpeed=921600",
+  "compiler_cpp_extra_flags": "-DLED_COUNT=60 -DLED_DATA_PIN=4",
+  "build": {
+    "exit_code": 0,
+    "program_bytes": 321856,
+    "program_capacity_bytes": 3342336,
+    "global_memory_bytes": 25560,
+    "remaining_memory_bytes": 302120,
+    "artifact_directory": ".runtime/firmware-release/v2.0.0-60",
+    "artifacts": {
+      "piano_lights.ino.bin": {
+        "bytes": 322000,
+        "sha256": "a89982d0c2f6b72265f98b02958794f63591fd825917853498a647709f01698f"
+      },
+      "piano_lights.ino.bootloader.bin": {
+        "bytes": 19968,
+        "sha256": "84bb365666003b051f564d04380d0cf5d9d85c420ddafe9fc863071b49e49bfc"
+      },
+      "piano_lights.ino.partitions.bin": {
+        "bytes": 3072,
+        "sha256": "1d9cca96de0fe07ad7fc0648b9878ddecd9ce565e38b589ad20fea698ed4c80c"
+      },
+      "boot_app0.bin": {
+        "bytes": 8192,
+        "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
+      },
+      "piano_lights.ino.merged.bin": {
+        "bytes": 16777216,
+        "sha256": "efd19d727f3235206000cd54231675bdef1ac5b96a329633bb6b5ddb22dc64aa"
+      }
     },
-    "s3": {
-      "exit_code": 0,
-      "summary": "Sketch uses 384047 bytes (29%) of program storage space. Maximum is 1310720 bytes.\nGlobal variables use 21896 bytes (6%) of dynamic memory, leaving 305784 bytes for local variables. Maximum is 327680 bytes.",
-      "binary_bytes": 384192,
-      "binary_sha256": "5814014c577b8a08db08b126869e3353567d3cb005f56b6580f0f43245c59a47"
-    }
+    "output_path_requirement": "本机链接器需使用英文输出路径，编译结束后再复制到项目目录。"
   },
-  "scope": "Host cross-compilation only; no flashing, physical LED or USB interoperability test."
+  "device": {
+    "port": "COM15",
+    "verified": true,
+    "protocol": 2,
+    "firmware": "2.0.0",
+    "led_count": 60,
+    "data_pin": 4,
+    "color_order": "GRB"
+  },
+  "flash": {
+    "completed": true,
+    "all_written_segments_hash_verified": true
+  },
+  "backup": {
+    "bytes": 16777216,
+    "path": ".runtime/firmware-backups/20261023-before-v2/com15-esp32s3-flash-16mb.bin",
+    "sha256": "0376b707b1d8e7c07dea0c7e2b154e7728e4ea54ae909ff8c3aff2684bad1572"
+  },
+  "device_checks": {
+    "command_round_trip_ms": {
+      "median": 14.22,
+      "p95": 14.75,
+      "samples": 20,
+      "clock": "perf_counter"
+    },
+    "out_of_range_rejected": true,
+    "heartbeat_without_redraw": true,
+    "watchdog_cleared": true,
+    "picture_restored_after_watchdog": true,
+    "disconnected_and_cleared": true
+  },
+  "scope": "实际ESP32-S3编译、上传及串口执行回报验证；往返耗时仅含命令发送与确认，不含实体琴输入至可见灯光的完整延迟。未进行本版实体灯色人工确认或真人弹奏验收；未编译本版ESP32-C3。"
 }

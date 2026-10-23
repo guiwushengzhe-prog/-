@@ -17,15 +17,66 @@
     serialLastSent:0, serialLastFrame:'', serialForceClear:false, importing:false, loadRevision:0,
     maxNoteDuration:0, testUntil:0, testNotes:[], testPixels:null, renderedCurrent:-1,
     midiAccess:null, midiInput:null, midiBleConnection:null, midiBleBusy:false, countdown:0, midiMatched:new Set(), midiHeld:new Set(), midiJudgedGroup:-1,
-    midiFeedback:'', midiFeedbackType:''};
+    midiFeedback:'', midiFeedbackType:'', midiGroupAttack:false, serialInfo:null};
   const keyElements = new Map();
   let ledElements = [];
   let scoreElements = new Map();
   let resizeTimer;
   let countdownTimer = null;
   let startupSerialCancelled = false;
+  let startupMidiCancelled = false;
+  let serialGeneration = 0;
+  let lastMidiInputId = null;
   let accompaniment = null;
   const LAST_SERIAL_KEY = 'piano-light-last-serial-v1';
+  const progress = window.PianoProgressStore ? new window.PianoProgressStore(localStorage) : null;
+  let progressKey=null,lastProgressSave=0;
+  const recovery={serial:{wanted:false,timer:null,attempt:0},midi:{wanted:false,timer:null,attempt:0}};
+  const retryDelays=[1000,2000,4000,7000,10000];
+
+  function savePracticeProgress(force=false){
+    if(!progressKey||!state.project||(!force&&performance.now()-lastProgressSave<1200))return;
+    lastProgressSave=performance.now();
+    progress?.save(state.project,{time:Math.max(0,state.time),groupIndex:state.groupIndex,
+      mode:state.mode,hand:state.hand,rate:state.rate,loop:state.loop,loopA:state.loopA,loopB:state.loopB});
+  }
+  function restorePracticeProgress(project){
+    progressKey=progress?.key(project)||null;
+    const saved=progress?.get(project);if(!saved)return;
+    state.mode=['timed','manual','correct'].includes(saved.mode)?saved.mode:'timed';
+    state.hand=['both','L','R'].includes(saved.hand)?saved.hand:'both';
+    state.rate=clamp(finite(saved.rate,1),.4,1.5);
+    state.time=clamp(finite(saved.time),0,project.duration);
+    state.groupIndex=indexAt(state.time);state.scorePage=Math.floor(state.groupIndex/PAGE_SIZE);
+    state.loopA=clamp(finite(saved.loopA),0,Math.max(0,project.duration-.1));
+    state.loopB=clamp(finite(saved.loopB,project.duration),state.loopA+.1,project.duration);
+    state.loop=saved.loop===true;
+    $('speed-range').value=String(state.rate*100);$('speed-label').textContent=`${state.rate.toFixed(2)}×`;rangeFill($('speed-range'));
+    $('loop-start').value=String(state.loopA);$('loop-end').value=String(state.loopB);
+  }
+  function cancelRecovery(kind,manual=false){
+    const job=recovery[kind];if(job.timer!==null)clearTimeout(job.timer);
+    job.timer=null;job.attempt=0;if(manual)job.wanted=false;
+  }
+  function scheduleRecovery(kind){
+    const job=recovery[kind];
+    if(!job.wanted||job.timer!==null||window.PianoLightCalibration?.active)return;
+    if(job.attempt>=retryDelays.length){
+      const message='自动重连未成功，设备就绪后请点击连接。练习位置已保留。';
+      if(kind==='serial')$('serial-message').textContent=message;else setMidiFeedback(message,'help');return;
+    }
+    const attempt=++job.attempt;
+    const message=`${kind==='serial'?'灯带':'蓝牙钢琴'}连接中断，正在尝试重连 ${attempt}/${retryDelays.length}。练习位置已保留。`;
+    if(kind==='serial')$('serial-message').textContent=message;else setMidiFeedback(message,'help');
+    job.timer=setTimeout(async()=>{
+      job.timer=null;if(!job.wanted||window.PianoLightCalibration?.active)return;
+      if(kind==='serial')await reconnectSerial();else await toggleBluetoothMidi(false,true);
+    },retryDelays[attempt-1]);
+  }
+  function pauseForDeviceLoss(){
+    if(state.playing||state.countdown)pause();
+    savePracticeProgress(true);
+  }
 
   class PracticeAccompaniment {
     constructor(media,report){
@@ -242,11 +293,13 @@
     const response = await fetch(path,options);
     if (!response.ok) {
       let message = `${response.status} ${response.statusText}`;
+      let retryable=response.status>=500;
       try {
         const payload = await response.json();
         message = payload.error || payload.message || payload.detail || message;
+        if(typeof payload.retryable==='boolean')retryable=payload.retryable;
       } catch (_) { /* Preserve HTTP status when the server did not return JSON. */ }
-      throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+      const error=new Error(typeof message === 'string' ? message : JSON.stringify(message));error.retryable=retryable;throw error;
     }
     return response.json();
   }
@@ -316,7 +369,9 @@
     $('time-total').textContent=timeLabel(project.duration);
     $('loop-start').value='0';$('loop-end').value=String(Number(project.duration.toFixed(1)));
     $('loop-start').max=$('loop-end').max=String(project.duration);
+    restorePracticeProgress(project);
     renderLegend();renderScore();renderProjectInfo();updateClock(true);updateActive(true);renderTransport();
+    savePracticeProgress(true);
     if (notify) toast(`已生成 ${project.groups.length} 组练习，简谱、指法与灯光已同步。`,'success');
     window.dispatchEvent(new CustomEvent('piano-project-loaded',{detail:project}));
   }
@@ -379,7 +434,7 @@
     state.midiFeedback=message;state.midiFeedbackType=type;renderMidiJudgement();
   }
   function resetMidiJudgement() {
-    state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';
+    state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';state.midiGroupAttack=false;
     state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'';
     renderMidiJudgement();
   }
@@ -389,21 +444,31 @@
     state.midiMatched=new Set(expected.filter(pitch=>held.has(pitch)));
     return expected.filter(pitch=>!held.has(pitch));
   }
-  function judgeMidiPitch(pitch) {
+  function judgeMidiPitch(pitch,released=false) {
     const pressed=`${pitchName(pitch)}（音符编号 ${pitch}）`;
     if(window.PianoLightCalibration?.active)return;
     if(state.mode==='correct'&&!state.playing){setMidiFeedback(`检测到 ${pressed}；点击「3 秒后开始」或「立即开始」后，弹对当前音组自动推进。`,'help');return;}
     const expected=midiExpectedPitches();
     if(!expected.length) { setMidiFeedback(`检测到 ${pressed}；当前音组在所选手别下没有音符，请调整左手／右手筛选。`,'help');return; }
     const remaining=matchHeldMidiPitches(expected);
-    if(expected.includes(pitch)) {
-      if(!remaining.length) {
+    if(!released&&expected.includes(pitch))state.midiGroupAttack=true;
+    const time=state.project.groups[state.groupIndex].time;
+    const extra=new Set([...state.midiHeld].map(token=>Number(token.split(':')[1])).filter(value=>!expected.includes(value)));
+    // Earlier notes whose written duration still overlaps this group are valid
+    // held notes, not extra wrong keys. Pedal messages never count as held keys.
+    if(extra.size)for(const note of state.project.notes){
+      if(note.start>=time-.001)break;
+      if(selected(note)&&note.start<time-.001&&note.end>time+.001)extra.delete(note.pitch);
+    }
+    if(extra.size){setMidiFeedback(`请松开多按的 ${[...extra].map(pitchName).join('、')}。目标音必须同时按住。`,'wrong');return;}
+    if(expected.includes(pitch)||released) {
+      if(!remaining.length&&state.midiGroupAttack) {
         if(state.mode==='correct'&&state.playing){
           step(1);
           if(!state.playing)setMidiFeedback('正确！这一段练习已完成。','correct');
         }else setMidiFeedback(`正确！本组 ${expected.length} 个不同音高已同时按住，按「下一组」继续。`,'correct');
       }
-      else setMidiFeedback(`当前同时按住 ${state.midiMatched.size}/${expected.length} 个音，还需同时按住 ${remaining.map(pitchName).join('、')}。`,'help');
+      else setMidiFeedback(remaining.length?`当前同时按住 ${state.midiMatched.size}/${expected.length} 个音，还需同时按住 ${remaining.map(pitchName).join('、')}。`:'请重新弹奏当前音组。','help');
     } else {
       setMidiFeedback(`弹错 ${pressed}；当前组需要 ${expected.map(pitchName).join('、')}。`,'wrong');
     }
@@ -439,9 +504,14 @@
     const [status,pitch,velocity]=event.data || [];
     window.dispatchEvent(new CustomEvent('piano-midi-message',{detail:Array.from(event.data || [])}));
     const token=`${status&15}:${pitch}`;
+    if((status&0xf0)===0xb0&&(pitch===120||pitch===123)){
+      for(const held of state.midiHeld)if(held.startsWith(`${status&15}:`))state.midiHeld.delete(held);
+      resetMidiJudgement();matchHeldMidiPitches();renderMidiJudgement();return;
+    }
     if((status&0xf0)===0x80||((status&0xf0)===0x90&&velocity===0)){
-      state.midiHeld.delete(token);
+      const wasHeld=state.midiHeld.delete(token);
       if(!window.PianoLightCalibration?.active&&(state.mode!=='correct'||state.playing)){
+        if(wasHeld){judgeMidiPitch(pitch,true);return;}
         const expected=midiExpectedPitches(),remaining=matchHeldMidiPitches(expected);
         if(expected.length&&remaining.length)setMidiFeedback(`当前同时按住 ${state.midiMatched.size}/${expected.length} 个音，还需同时按住 ${remaining.map(pitchName).join('、')}。`,'help');
         else renderMidiJudgement();
@@ -456,6 +526,7 @@
   }
   async function toggleBluetoothMidi(includeAllDevices=false,automatic=false) {
     if(state.midiBleBusy || (automatic && (state.midiBleConnection || state.midiInput)))return;
+    if(!automatic){startupMidiCancelled=true;cancelRecovery('midi');recovery.midi.wanted=!state.midiBleConnection;}
     if(state.midiBleConnection) {
       if(state.mode==='correct')pause();
       const connection=state.midiBleConnection;state.midiBleConnection=null;connection.disconnect();
@@ -479,16 +550,17 @@
         onDisconnected:()=>{
           if(!state.midiBleConnection && !connection)return;
           if(state.midiBleConnection!==connection)return;
-          if(state.mode==='correct')pause();
           state.midiBleConnection=null;$('midi-ble-connect').textContent='搜索并连接蓝牙钢琴';
           $('midi-ble-all').disabled=false;
           setMidiConnection('蓝牙已断开','error');resetMidiJudgement();
+          pauseForDeviceLoss();scheduleRecovery('midi');
         }});
       connection=await pendingConnection;
       await closingInput;
       if(automatic && state.midiInput){connection.disconnect();return;}
       if(!connection.connected)throw new Error('蓝牙钢琴已断开，请重新连接。');
       state.midiBleConnection=connection;
+      recovery.midi.wanted=true;cancelRecovery('midi');
       $('midi-ble-connect').textContent='断开蓝牙 MIDI';
       $('midi-ble-all').disabled=true;
       setMidiConnection(`已连接：${connection.name}`,'connected');resetMidiJudgement();
@@ -501,17 +573,20 @@
       else if(error.name==='SecurityError') message='浏览器没有蓝牙权限，请在新版 Chrome 或 Edge 中打开本机页面。';
       else if(error.name==='NetworkError') message='蓝牙连接中断，或所选设备没有可用的 MIDI 蓝牙服务。';
       setMidiFeedback(message,'help');
+      if(!automatic)recovery.midi.wanted=false;
+      scheduleRecovery('midi');
     } finally {state.midiBleBusy=false;$('midi-ble-connect').disabled=false;$('midi-ble-all').disabled=!!state.midiBleConnection;}
   }
   function handleMidiStateChange(event) {
     const port=event.port;
     renderMidiInputs();
     if(state.midiInput && port?.id===state.midiInput.id && port.state==='disconnected') {
-      if(state.mode==='correct')pause();
       state.midiInput.onmidimessage=null;state.midiInput=null;
       $('midi-connect').textContent='连接 MIDI';
       setMidiConnection('MIDI 设备已断开','error');resetMidiJudgement();
+      pauseForDeviceLoss();
     } else if(port?.type==='input' && port.state==='connected' && !state.midiInput) {
+      if(port.id===lastMidiInputId){connectMidiInput(port);return;}
       setMidiConnection('发现 MIDI 输入');setMidiFeedback('已发现输入设备，请选择后连接。');
     }
   }
@@ -540,6 +615,7 @@
       await input.open();
       if(input.state==='disconnected')throw new Error('连接时 MIDI 设备已断开，请重新扫描。');
       state.midiInput=input;input.onmidimessage=handleMidiMessage;
+      lastMidiInputId=input.id;cancelRecovery('midi',true);
       $('midi-connect').textContent='断开 MIDI';
       setMidiConnection(`已连接：${input.name || 'MIDI 输入'}`,'connected');resetMidiJudgement();
     } catch(error) {
@@ -547,7 +623,9 @@
     }
   }
   async function toggleMidiConnection() {
+    startupMidiCancelled=true;
     if(state.midiInput) {
+      lastMidiInputId=null;
       const input=state.midiInput;state.midiInput=null;input.onmidimessage=null;
       try{await input.close();}catch(_){}
       $('midi-connect').textContent='连接 MIDI';setMidiConnection('已断开');resetMidiJudgement();return;
@@ -616,7 +694,7 @@
   }
   function updateScoreCurrent(autoscroll=true) {
     if(state.midiJudgedGroup!==state.groupIndex) {
-      state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';
+      state.midiJudgedGroup=state.groupIndex;state.midiMatched.clear();state.midiFeedbackType='';state.midiGroupAttack=false;
       state.midiFeedback=(state.midiInput||state.midiBleConnection)?'请弹奏当前高亮音组。':'';
     }
     renderMidiJudgement();
@@ -727,6 +805,7 @@
     $('live-notes').innerHTML=notes.length?notes.map(note=>`<span class="live-note ${isPending(note)?'pending':''}" style="--finger-color:${colorFor(note)}">${isPending(note)?'<span class="pending-label">预亮</span>':''}${escapeHTML(pitchName(note.pitch))}<span>${note.hand==='L'?'左':'右'}${note.finger}</span></span>`).join(''):(state.playing?'<span class="muted">等待下一组音符…</span>':'');
     $('playing-dot').classList.toggle('active',!!notes.length);
     $('live-status').textContent=state.testUntil>performance.now()?'灯珠测试':state.playing?(state.mode==='correct'?'等待弹对':state.mode==='manual'?'等待你推进':'跟灯弹奏'):state.time>0?'已暂停':'准备就绪';
+    syncSerial();
   }
   function renderTransport() {
     renderAccompaniment();
@@ -754,6 +833,7 @@
     state.lastClockPaint=now;
     $('time-current').textContent=state.time<0?`-${Math.abs(state.time).toFixed(1)}`:timeLabel(state.time);
     $('timeline').value=String(Math.max(0,state.time));rangeFill($('timeline'));
+    savePracticeProgress(force);
   }
   function currentTimedPosition(now=performance.now()) {
     const audioPosition=accompaniment?.position();if(Number.isFinite(audioPosition))return audioPosition;
@@ -769,6 +849,7 @@
     state.serialForceClear=true;
     if(state.project)state.time=clamp(state.time,0,state.project.duration);
     updateActive(true);renderTransport();updateClock(true);syncSerial();
+    savePracticeProgress(true);
   }
   function play(ready=false,immediate=false) {
     if(!state.project)return;
@@ -857,22 +938,30 @@
     if(window.PianoLightCalibration?.active)return;
     if(!state.serialConnected || state.serialBusy)return;
     const now=performance.now();
-    // Maximum 12.5 Hz; unchanged frames are sent only as a 500 ms watchdog heartbeat.
-    if(now-state.serialLastSent<80)return;
+    // Changed pictures get a 20 ms send opportunity. Clear bypasses throttling;
+    // while one request is in flight only the latest state is retained.
+    if(!state.serialForceClear&&now-state.serialLastSent<20)return;
     const pixels=state.serialForceClear?[]:currentPixels(now);
     const frame={pixels,brightness:config.brightness};
     const signature=JSON.stringify(frame);
     if(signature===state.serialLastFrame && now-state.serialLastSent<500 && !state.serialForceClear)return;
     state.serialBusy=true;state.serialLastSent=now;state.serialLastFrame=signature;state.serialForceClear=false;
+    const generation=serialGeneration;
     try{await post('/api/serial/frame',frame);}
     catch(error){
+      if(generation!==serialGeneration)return;
+      if(error.retryable===false){
+        pauseForDeviceLoss();$('serial-message').textContent=error.message;toast(error.message,'error');return;
+      }
       state.serialConnected=false;setDeviceState();
+      pauseForDeviceLoss();
       $('serial-message').textContent=`灯带连接已中断：${error.message}`;
       toast(`灯带连接已中断：${error.message}`,'error');
-    } finally{state.serialBusy=false;}
+      scheduleRecovery('serial');
+    } finally{state.serialBusy=false;if(state.serialForceClear&&state.serialConnected)syncSerial();}
   }
   function setDeviceState() {
-    $('device-title').textContent=state.serialConnected?'实物灯带已连接':'灯带预览模式';
+    $('device-title').textContent=state.serialConnected?(state.serialInfo?.verified?'实物灯带已确认连接':'灯带串口已连接'):'灯带预览模式';
     $('device-subtitle').textContent=state.serialConnected?'与当前练习时间轴同步':'连接 ESP32 后同步到实物';
     $('device-dot').classList.toggle('neutral',!state.serialConnected);
     $('connect-button').innerHTML=`<svg class="icon"><use href="#i-plug"/></svg>${state.serialConnected?'断开灯带':'连接灯带'}`;
@@ -893,40 +982,47 @@
     finally{$('refresh-ports').disabled=false;}
   }
   async function toggleConnection(automatic=false) {
-    if(!automatic)startupSerialCancelled=true;
+    if(automatic&&state.serialConnected)return;
+    if(!automatic){startupSerialCancelled=true;cancelRecovery('serial');recovery.serial.wanted=!state.serialConnected;}
     if($('connect-button').disabled)return;
     $('connect-button').disabled=true;
     try{
       if(state.serialConnected){
         pause();
+        serialGeneration++;
+        state.serialConnected=false;
         // Disconnect endpoint also clears the LEDs, including when a frame is still in flight.
         await post('/api/serial/disconnect',{});state.serialConnected=false;
         $('serial-message').textContent='灯带已熄灭并断开，软件预览仍可使用。';toast('灯带已断开。');
       }else{
         const port=$('serial-port').value;
         if(!port){toast('请先选择 ESP32 串口。');return;}
-        await post('/api/serial/connect',{port,baud:115200});
+        recovery.serial.wanted=true;
+        const info=await post('/api/serial/connect',{port,baud:115200});
         try{localStorage.setItem(LAST_SERIAL_KEY,port);}catch(_){}
+        serialGeneration++;state.serialInfo=info;cancelRecovery('serial');
         state.serialConnected=true;state.serialLastFrame='';state.serialLastSent=0;state.serialForceClear=true;
-        $('serial-message').textContent=`已连接 ${port} · 亮度 ${Math.round(config.brightness*100)}%${config.confirmed?'':' · 当前为示例映射，请先核对琴键位置。'}`;
-        await syncSerial();toast('灯带已连接，开始练习即可同步。','success');
+        $('serial-message').textContent=info.verified?`已确认固件 ${info.firmware} · ${info.led_count} 颗灯 · 亮度 ${Math.round(config.brightness*100)}%${info.led_count!==config.ledCount?' · 与页面灯珠数量不一致，请核对设置。':''}`:`已连接 ${port} · 旧固件不支持执行确认`;
+        await syncSerial();if(!automatic)toast('灯带已连接，开始练习即可同步。','success');
       }
       setDeviceState();
-    }catch(error){toast(`连接操作失败：${error.message}`,'error');$('serial-message').textContent=error.message;}
+    }catch(error){if(!automatic)toast(`连接操作失败：${error.message}`,'error');$('serial-message').textContent=error.message;scheduleRecovery('serial');}
     finally{$('connect-button').disabled=false;}
   }
   function lastSerialPort(){try{return localStorage.getItem(LAST_SERIAL_KEY)||'';}catch(_){return '';}}
-  async function reconnectDevices(){
-    const serial=async()=>{
+  async function reconnectSerial(){
       const port=lastSerialPort();if(!port||state.serialConnected)return;
       await refreshPorts(false);
-      if(state.serialConnected || startupSerialCancelled)return;
+      if(state.serialConnected||!recovery.serial.wanted)return;
       if(![...$('serial-port').options].some(option=>option.value===port)){
-        $('serial-message').textContent=`上次串口 ${port} 暂不可用，请接好灯带后点击连接。`;return;
+        $('serial-message').textContent=`上次串口 ${port} 暂不可用，请接好灯带后点击连接。`;scheduleRecovery('serial');return;
       }
       $('serial-port').value=port;await toggleConnection(true);
-    };
-    return Promise.allSettled([serial(),toggleBluetoothMidi(false,true)]);
+  }
+  async function reconnectDevices(){
+    if(!startupSerialCancelled)recovery.serial.wanted=!!lastSerialPort();
+    if(!startupMidiCancelled)recovery.midi.wanted=!!localStorage.getItem('piano-light-last-bluetooth-v1');
+    return Promise.allSettled([reconnectSerial(),startupMidiCancelled?Promise.resolve():toggleBluetoothMidi(false,true)]);
   }
   function updateMappingLabels() {
     $('mapping-badge').textContent=config.confirmed?'已保存安装校准':'示例映射 · 安装后请校准';
@@ -1138,6 +1234,7 @@
     if(end<=start){start=0;end=duration;}
     state.loopA=start;state.loopB=end;$('loop-start').value=String(Number(start.toFixed(1)));$('loop-end').value=String(Number(end.toFixed(1)));
     startAccompaniment();
+    savePracticeProgress(true);
   }
   function fallbackDemo() {
     const bpm=90,beat=60/bpm,notes=[],groups=[];
@@ -1183,16 +1280,19 @@
       if(state.playing && state.mode==='timed'){state.time=currentTimedPosition();state.anchorTime=state.time;state.anchorNow=performance.now();}
       state.rate=Number(event.target.value)/100;$('speed-label').textContent=`${state.rate.toFixed(2)}×`;rangeFill(event.target);
       startAccompaniment();
+      savePracticeProgress(true);
     });
     $('speed-reset').addEventListener('click',()=>{$('speed-range').value='100';$('speed-range').dispatchEvent(new Event('input'));});
     $('mode-control').addEventListener('click',event=>{
       const button=event.target.closest('[data-mode]');if(!button)return;
       pause();state.mode=button.dataset.mode;state.groupIndex=indexAt(state.time);resetMidiJudgement();renderTransport();updateScoreCurrent();
+      savePracticeProgress(true);
     });
     $('hand-filter').addEventListener('click',event=>{
       const button=event.target.closest('[data-hand]');if(!button)return;
       if(state.countdown)pause();
       state.hand=button.dataset.hand;resetMidiJudgement();renderScore();renderTransport();updateActive(true);
+      savePracticeProgress(true);
     });
     $('score-grid').addEventListener('click',event=>{const button=event.target.closest('[data-index]');if(button){const index=Number(button.dataset.index);seek(state.project.groups[index].time,index);}});
     $('score-page-prev').addEventListener('click',()=>{state.scorePage=Math.max(0,state.scorePage-1);renderScore();$('score-scroll').scrollLeft=0;});
@@ -1221,6 +1321,8 @@
     });
     document.addEventListener('visibilitychange',()=>{if(document.hidden)pause();});
     window.addEventListener('pagehide',()=>{
+      if(state.playing&&state.mode==='timed')state.time=currentTimedPosition();
+      savePracticeProgress(true);cancelRecovery('serial');cancelRecovery('midi');
       accompaniment?.stop();
       if(!state.serialConnected)return;
       const body=new Blob([JSON.stringify({pixels:[],brightness:config.brightness})],{type:'application/json'});
@@ -1322,9 +1424,17 @@
   async function initialize() {
     bindEvents();installWorkspace();installFingerColors();installAccompaniment();populateCalibration();loadProject(fallbackDemo());renderKeyboard();
     document.querySelectorAll('input[type=range]').forEach(rangeFill);
-    requestAnimationFrame(animate);setInterval(syncSerial,80);
+    requestAnimationFrame(animate);setInterval(syncSerial,20);
     const revision=state.loadRevision;
     const results=await Promise.allSettled([refreshStatus(),request('/api/demo')]);
+    await window.PianoLibrary?.ready;
+    if(state.loadRevision===revision&&!state.importing&&progress?.last()){
+      try{
+        const entries=await window.PianoLibrary?.list()||[];
+        const last=entries.find(entry=>progress.key(entry.project)===progress.last());
+        if(last&&state.loadRevision===revision&&!state.importing)loadProject(last.project);
+      }catch(_){ /* A saved song failing to load must leave the library usable. */ }
+    }
     if(results[1].status==='fulfilled' && state.loadRevision===revision && !state.importing) {
       try{loadProject(results[1].value);}catch(error){toast(`示例载入失败：${error.message}`,'error');}
     }
@@ -1335,6 +1445,7 @@
   window.PianoSimultaneousNative=true;
   window.PianoMappedOnlyNative=true;
   window.PianoProjectApi={current:()=>state.project,load:project=>loadProject(project)};
+  window.PianoPracticeProgress={current:()=>progress?.get(state.project)||null};
   window.PianoStartupReconnect={retry:reconnectDevices};
   window.PianoWorkspace={navigate:navigateWorkspace};
   window.PianoFingerColors={set:setFiveColors,setMode:setColorMode,colorFor,get enabled(){return state.colorMode==='five';},get mode(){return state.colorMode;},palette:fiveFingerColors.slice()};
@@ -1701,16 +1812,25 @@
     const current=raw||await window.PianoProjectApi.current();if(!current)return;
     project=current;
     const original=current.key_adaptation?.original_project||current;
-    const key=JSON.stringify([original.source_notes||original.notes,original.groups,original.bpm,original.transcription]);
+    const key=JSON.stringify([original.title,original.source,original.source_notes||original.notes,original.groups,original.bpm,original.transcription]);
     if(!force&&key===lastKey)return pending;
     lastKey=key;const ticket=++request;
-    if(active>=0&&core('loop-button').getAttribute('aria-pressed')==='true')core('loop-button').click();
+    // A new song already restored its own loop. Do not toggle that restored
+    // range off merely because the previous song had an active phrase.
     active=-1;occurrenceIndex=0;analysis={sections:[]};render();
     $('summary').textContent='正在自动分析这首曲子的循环片段，首次分析需要稍等片刻…';$('current').textContent='分析期间可以照常练习整首。';$('retry').hidden=true;
     try{
       pending=analyze(original);
       const result=await pending;if(ticket!==request)return;
-      analysis=result;render();
+      analysis=result;
+      const saved=window.PianoPracticeProgress?.current();
+      if(saved?.loop){
+        for(let i=0;i<analysis.sections.length;i++){
+          const occurrence=analysis.sections[i].occurrences.findIndex(range=>Math.abs(range.start-saved.loopA)<.11&&Math.abs(range.end-saved.loopB)<.11);
+          if(occurrence>=0){active=i;occurrenceIndex=occurrence;break;}
+        }
+      }
+      render();
     }catch(error){
       if(ticket!==request)return;
       $('summary').textContent=error.message;$('retry').hidden=false;$('current').textContent='可以继续练习整首，稍后重试自动分段。';

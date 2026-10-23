@@ -58,5 +58,6 @@ assert.deepEqual(Array.from(api.pixelsFor(adaptedNotes.slice(0,2)),p=>p.index),[
 const message=(pitch,velocity=90)=>api.handleMidiMessage({data:[0x90,pitch,velocity]});
 message(61);assert.equal(api.state.groupIndex,0,'原来的未对应音不能通过替代音判定');
 message(60);message(60,0);message(64);assert.equal(api.state.groupIndex,0,'替代和弦仍必须同时按住');
+message(61,0);
 message(60);assert.equal(api.state.groupIndex,1,'同时按住替代后的和弦才推进');
 console.log('邻键替代：黑白键、缺键、和弦合并、旋律、超范围、无效映射、指法重算入口和原谱保留检查通过。');

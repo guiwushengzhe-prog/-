@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -18,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .music import build_project, demo_project, read_midi, write_midi
+from .serial_lights import SerialLights
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = Path(os.environ.get("PIANO_DATA_DIR", ROOT / ".runtime"))
@@ -36,8 +36,8 @@ ENGINE_PYTHON = os.environ.get("PIANO_ENGINE_PYTHON", sys.executable)
 def engine_status():
     # Availability is established by import checks, never by inventing a score.
     try:
-        result = subprocess.run([ENGINE_PYTHON, str(WORKER), "--check"],
-                                capture_output=True, text=True, timeout=25)
+        result = subprocess.run([ENGINE_PYTHON, "-X", "utf8", str(WORKER), "--check"],
+                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=25)
         lines = [line for line in result.stdout.splitlines() if line.startswith("{")]
         if lines:
             report = json.loads(lines[-1])
@@ -48,73 +48,6 @@ def engine_status():
         return {"available": False, "message": "本地转谱依赖未安装，请运行 setup.sh。"}
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return {"available": False, "message": "本地转谱引擎未就绪，请运行 setup.sh。"}
-
-
-class SerialLights:
-    def __init__(self):
-        self.port = None
-        self.lock = threading.Lock()
-
-    def ports(self):
-        try:
-            from serial.tools.list_ports import comports
-        except ImportError:
-            return []
-        return [{"device": p.device, "description": p.description} for p in comports()]
-
-    def connect(self, device, baud):
-        import serial
-        # Prevent a local UI from writing arbitrary files under the name of a port.
-        if device not in {p["device"] for p in self.ports()}:
-            raise ValueError("请选择当前检测到的串口。")
-        if int(baud) != 115200:
-            raise ValueError("固件协议使用 115200 波特率。")
-        with self.lock:
-            self._disconnect()
-            self.port = serial.Serial(device, 115200, timeout=.1, write_timeout=.25)
-            self.port.write(b'{"type":"clear"}\n')
-        return {"connected": True, "port": device}
-
-    def _disconnect(self):
-        if self.port:
-            try:
-                self.port.write(b'{"type":"clear"}\n')
-            finally:
-                self.port.close()
-                self.port = None
-
-    def disconnect(self):
-        with self.lock:
-            self._disconnect()
-        return {"connected": False}
-
-    def frame(self, request):
-        pixels = request.get("pixels", [])
-        brightness = float(request.get("brightness", .15))
-        if not math.isfinite(brightness) or not 0 <= brightness <= 1:
-            raise ValueError("亮度应在 0–1 之间。")
-        if not isinstance(pixels, list) or len(pixels) > 512:
-            raise ValueError("单帧最多 512 个灯珠。")
-        packed = []
-        for p in pixels:
-            if isinstance(p, dict):
-                p = [p.get("index"), p.get("r"), p.get("g"), p.get("b")]
-            if not isinstance(p, list) or len(p) != 4 or any(type(v) is not int for v in p):
-                raise ValueError("灯珠应包含整数 index/r/g/b。")
-            if not 0 <= p[0] < 512 or not all(0 <= v <= 255 for v in p[1:]):
-                raise ValueError("灯珠编号或颜色超出范围。")
-            packed.append(p)
-        line = json.dumps({"type": "frame", "brightness": brightness,
-                           "pixels": packed}, separators=(",", ":")).encode() + b"\n"
-        with self.lock:
-            if not self.port or not self.port.is_open:
-                raise ValueError("灯条串口尚未连接。")
-            try:
-                self.port.write(line)
-            except Exception:
-                self._disconnect()
-                raise
-        return {"sent": len(packed), "brightness": brightness}
 
 
 LIGHTS = SerialLights()
@@ -266,8 +199,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.end_headers()
+            self.wfile.write(body)
+        except ConnectionError:
+            # Closing/reloading a page can abandon an in-flight frame request.
+            # Its receiver command already completed; do not send another HTTP
+            # response or mistake the closed browser socket for a serial fault.
+            return
 
     def local_request(self):
         host = self.headers.get("Host", "")
@@ -293,7 +232,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/status":
                 return self.send(200, {"engine": self.server.engine,
                                        "serial": {"available": importlib.util.find_spec("serial") is not None,
-                                                  "ports": LIGHTS.ports()}})
+                                                  "ports": LIGHTS.ports(), **LIGHTS.status()}})
+            if path == "/api/serial/status":
+                return self.send(200, LIGHTS.status())
             if path == "/api/demo":
                 return self.send(200, demo_project())
             if path == "/api/library":
@@ -333,6 +274,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, saved)
             static = {"/": ("index.html", "text/html; charset=utf-8"),
                       "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+                      "/practice_progress.js": ("practice_progress.js", "text/javascript; charset=utf-8"),
                       "/ble_midi.js": ("ble_midi.js", "text/javascript; charset=utf-8"),
                       "/calibrate.js": ("calibrate.js", "text/javascript; charset=utf-8"),
                       "/style.css": ("style.css", "text/css; charset=utf-8")}
@@ -446,7 +388,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/serial/disconnect":
                 return self.send(200, LIGHTS.disconnect())
             if path == "/api/serial/frame":
-                return self.send(200, LIGHTS.frame(request))
+                try:
+                    result = LIGHTS.frame(request)
+                except OSError as exc:
+                    return self.send(503, {"error": str(exc)[:600], "retryable": True})
+                except ValueError as exc:
+                    return self.send(400, {"error": str(exc)[:600], "retryable": False})
+                return self.send(200, result)
             return self.send(404, {"error": "接口不存在。"})
         except Exception as exc:
             return self.send(400, {"error": str(exc)[:600]})
