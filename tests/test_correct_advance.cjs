@@ -8,7 +8,7 @@ const context={window,localStorage:{getItem(){return null;}},performance:{now:()
   document:{getElementById(){return {textContent:'',dataset:{}};}},
   CustomEvent:class{constructor(type,options){this.detail=options.detail;}},console};
 const instrumented=source.replace('  initialize();',`
-  renderMidiJudgement=()=>{};updateActive=()=>{};updateClock=()=>{};renderTransport=()=>{};
+  renderMidiJudgement=()=>{};updateActive=()=>{};updateClock=()=>{};renderTransport=()=>{};renderScore=()=>{};
   updateScoreCurrent=()=>{if(state.midiJudgedGroup!==state.groupIndex)resetMidiJudgement();};
   syncSerial=()=>{};toast=()=>{};
   window.test={state,config,handleMidiMessage,judgeMidiPitch,resetMidiJudgement,step,mappedOnlyStats,selected,midiExpectedPitches,activeNotes};`);
@@ -29,6 +29,7 @@ on(64);assert.equal(state.groupIndex,0,'凑齐目标音但还按着错键不能�
 off(61);assert.equal(state.groupIndex,1,'松开错键且目标和弦仍同时按住，只推进一组');
 off(60);off(64);
 on(67);assert.equal(state.playing,false,'末组弹对后停止');
+assert.equal(state.groupIndex,0,'弹完整曲回到第一组');assert.equal(state.time,0,'弹完整曲进度归零');assert.equal(state.scorePage,0,'弹完整曲回到第一页');
 setup([[60,64],[67]]);
 on(60);off(60);assert.equal(state.midiMatched.size,0,'松开立即取消该音的判对状态');
 on(64);assert.equal(state.groupIndex,0,'先后弹奏且没有同时按住不能累计通过');

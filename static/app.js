@@ -466,7 +466,7 @@
       if(!remaining.length&&state.midiGroupAttack) {
         if(state.mode==='correct'&&state.playing){
           step(1);
-          if(!state.playing)setMidiFeedback('本段完成','correct');
+          if(!state.playing)setMidiFeedback('本曲完成','correct');
         }else setMidiFeedback('本组正确 · 下一组 →','correct');
       }
       else setMidiFeedback(remaining.length?`已按 ${state.midiMatched.size}/${expected.length} · 还需同时按住 ${remaining.map(pitchName).join('、')}`:'请重新弹奏当前音组。','help');
@@ -901,6 +901,11 @@
     state.groupIndex=groupIndex ?? indexAt(state.time);
     updateScoreCurrent();updateClock(true);updateActive(true);
   }
+  function finishPractice() {
+    pause();
+    state.time=0;state.groupIndex=0;state.scorePage=0;
+    resetMidiJudgement();renderScore(true);updateClock(true);updateActive(true);
+  }
   function step(direction) {
     if(!state.project)return;
     if(state.countdown)pause();
@@ -910,7 +915,7 @@
     while(next>=0 && next<groups.length && (!groupHasSelected(next) || (state.loop && (groups[next].time<state.loopA || groups[next].time>=state.loopB))))next+=direction;
     if(next<0 || next>=groups.length){
       if(state.loop){const candidates=groups.map((group,index)=>index).filter(index=>groupHasSelected(index)&&groups[index].time>=state.loopA&&groups[index].time<state.loopB);next=direction>0?candidates[0]:candidates[candidates.length-1];}
-      if(next===undefined || next<0 || next>=groups.length){pause();toast(direction>0?'这一段练习完成。可回到开头再来一遍。':'已到第一组。');return;}
+      if(next===undefined || next<0 || next>=groups.length){if(direction>0)finishPractice();else {pause();toast('已到第一组。');}return;}
     }
     clearTest();state.groupIndex=next;state.time=groups[next].time;state.playing=true;state.serialForceClear=false;
     if(state.mode==='correct')resetMidiJudgement();
@@ -925,10 +930,12 @@
         state.time=state.loopA+(state.time-state.loopB)%Math.max(0.1,length);state.anchorTime=state.time;state.anchorNow=now;
         startAccompaniment();
       }
-      if(state.time>=state.project.duration){state.time=state.project.duration;state.playing=false;state.serialForceClear=true;accompaniment?.stop();renderTransport();}
-      const previewTime=state.loop?Math.min(state.time+state.lookahead,state.loopB-0.00001):state.time+state.lookahead;
-      const index=indexAt(previewTime);
-      if(index!==state.groupIndex){state.groupIndex=index;updateScoreCurrent();}
+      if(state.time>=state.project.duration)finishPractice();
+      else {
+        const previewTime=state.loop?Math.min(state.time+state.lookahead,state.loopB-0.00001):state.time+state.lookahead;
+        const index=indexAt(previewTime);
+        if(index!==state.groupIndex){state.groupIndex=index;updateScoreCurrent();}
+      }
       updateClock();
     }
     if(state.testUntil && state.testUntil<=now)clearTest();
